@@ -3,15 +3,14 @@ import random
 import math
 from sqlalchemy.sql.expression import func
 from app import db
-from app.models.player import Player
+from app.models.player import Player, Contract
 from app.models.system import NameLibrary
 
 # ==========================================
 # ASBL Player Generator Service
-# Based on Specification v2.2
+# Based on Specification v2.4
 # ==========================================
 
-DEFAULT_AGE = 18
 STAT_MIN, STAT_MAX = 1, 99
 
 OVERALL_GRADES = ["G", "C", "B", "A", "S", "SS", "SSR"]
@@ -21,13 +20,35 @@ GRADE_FACTOR = {
     "G": 1.0, "C": 1.1, "B": 1.3, "A": 1.6, "S": 2.0, "SS": 2.5, "SSR": 3.0,
 }
 
+# v2.4 新增: 年齡浮動範圍 (18 + random(0, offset))
+AGE_OFFSETS = {
+    "SSR": 0, # 固定 18
+    "SS": 1,  # 18-19
+    "S": 2,   # 18-20
+    "A": 3,   # 18-21
+    "B": 4,   # 18-22
+    "C": 5,   # 18-23
+    "G": 6    # 18-24
+}
+
+# v2.4 新增: 初始合約規則
+CONTRACT_RULES = {
+    "SSR": {"years": 4, "role": "Star"},
+    "SS":  {"years": 4, "role": "Starter"},
+    "S":   {"years": 4, "role": "Starter"},
+    "A":   {"years": 2, "role": "Rotation"},
+    "B":   {"years": 2, "role": "Rotation"},
+    "C":   {"years": 1, "role": "Role"},
+    "G":   {"years": 1, "role": "Bench"},
+}
+
 UNTRAINABLE_RULES = {
-    "G":  {"sum_min": 10,  "sum_max": 400, "stat_min": 10, "stat_max": 60},
-    "C":  {"sum_min": 399, "sum_max": 600, "stat_min": 20, "stat_max": 70},
-    "B":  {"sum_min": 599, "sum_max": 700, "stat_min": 30, "stat_max": 70},
-    "A":  {"sum_min": 699, "sum_max": 800, "stat_min": 40, "stat_max": 75},
-    "S":  {"sum_min": 799, "sum_max": 900, "stat_min": 50, "stat_max": 80},
-    "SS": {"sum_min": 900, "sum_max": 950, "stat_min": 60, "stat_max": 99},
+    "G":  {"sum_min": 10,  "sum_max": 400, "stat_min": 1, "stat_max": 99},
+    "C":  {"sum_min": 399, "sum_max": 600, "stat_min": 1, "stat_max": 99},
+    "B":  {"sum_min": 599, "sum_max": 700, "stat_min": 1, "stat_max": 99},
+    "A":  {"sum_min": 699, "sum_max": 800, "stat_min": 10, "stat_max": 99},
+    "S":  {"sum_min": 799, "sum_max": 900, "stat_min": 20, "stat_max": 99},
+    "SS": {"sum_min": 900, "sum_max": 950, "stat_min": 30, "stat_max": 99},
     "SSR":{"sum_min": 951, "sum_max": 990, "stat_min": 91, "stat_max": 99},
 }
 
@@ -54,7 +75,6 @@ class PlayerGenerator:
         query = NameLibrary.query.filter_by(category=category)
         
         if length_filter:
-            # 使用 char_length 確保 MySQL 正確計算中文字數
             if length_filter == '1':
                 query = query.filter(func.char_length(NameLibrary.text) == 1)
             elif length_filter == '2':
@@ -63,8 +83,6 @@ class PlayerGenerator:
                 query = query.filter(func.char_length(NameLibrary.text) >= 3)
         
         obj = query.order_by(func.random()).first()
-        
-        # 防呆: 若篩選不到則隨機
         if not obj and length_filter:
              obj = NameLibrary.query.filter_by(category=category).order_by(func.random()).first()
              
@@ -72,23 +90,15 @@ class PlayerGenerator:
 
     @classmethod
     def _generate_name(cls):
-        # 1. 抽姓 (Last Name) - 應用機率控制
         r = random.random()
-        if r < 0.80:
-            len_filter = '1'   # 80% 單字姓
-        elif r < 0.95:
-            len_filter = '2'   # 15% 雙字姓
-        else:
-            len_filter = '3+'  # 5%  長姓
+        if r < 0.80: len_filter = '1'
+        elif r < 0.95: len_filter = '2'
+        else: len_filter = '3+'
             
         last_name = cls._get_random_text('last', length_filter=len_filter) or "無名"
-
-        # 2. 抽名 (First Name) - 維持原有邏輯 (完全隨機)
         first_name = cls._get_random_text('first') or "氏"
-        
         full_name = last_name + first_name
         
-        # 3. 補字邏輯 (原有邏輯)
         should_add_char = False
         if len(full_name) <= 2:
             if random.choice([True, False]): should_add_char = True
@@ -104,10 +114,8 @@ class PlayerGenerator:
 
     @staticmethod
     def _generate_height():
-        # 維持常態分佈: Mean 195, SD 10
         mean, std_dev = 195, 10
         min_h, max_h = 160, 230
-        
         while True:
             u1, u2 = random.random(), random.random()
             z = math.sqrt(-2.0 * math.log(max(u1, 1e-12))) * math.cos(2.0 * math.pi * u2)
@@ -118,7 +126,6 @@ class PlayerGenerator:
     @staticmethod
     def _pick_position(height_cm):
         r = random.random()
-        # 維持原始門檻
         if height_cm < 190:
             return "PG" if r < 0.60 else "SG"
         elif height_cm < 200:
@@ -131,7 +138,7 @@ class PlayerGenerator:
             elif r < 0.35: return "SF"
             elif r < 0.85: return "PF"
             else: return "C"
-        else: # >= 210
+        else:
             if r < 0.05: return "PG"
             elif r < 0.15: return "SG"
             elif r < 0.25: return "SF"
@@ -165,21 +172,38 @@ class PlayerGenerator:
         stats.update(trainable_stats)
         return stats
 
+    # v2.4 新增: 根據等級生成年齡
+    @staticmethod
+    def _generate_age(grade):
+        offset = AGE_OFFSETS.get(grade, 6)
+        return 18 + random.randint(0, offset)
+
+    # v2.4 新增: 取得合約規則
+    @staticmethod
+    def _get_contract_rules(grade):
+        return CONTRACT_RULES.get(grade, {"years": 1, "role": "Bench"})
+
     @classmethod
-    def generate_and_persist(cls, count=1, user_id=None):
-        # 此函數僅負責生成並存檔，不負責開隊邏輯檢核
+    def generate_and_persist(cls, count=1, user_id=None, team_id=None):
         new_players_preview = []
         try:
             for _ in range(count):
+                # 1. 基礎生成
+                grade = random.choices(OVERALL_GRADES, weights=OVERALL_GRADE_WEIGHTS, k=1)[0]
                 name = cls._generate_name()
                 height = cls._generate_height()
                 position = cls._pick_position(height)
-                grade = random.choices(OVERALL_GRADES, weights=OVERALL_GRADE_WEIGHTS, k=1)[0]
-                raw_stats = cls._generate_stats_by_grade(grade)
+                age = cls._generate_age(grade) # v2.4
                 
+                # 2. 數值生成
+                raw_stats = cls._generate_stats_by_grade(grade)
                 total_stats_sum = sum(raw_stats.values())
-                start_salary = int(round(total_stats_sum * GRADE_FACTOR[grade]))
+                
+                # 3. 薪資與合約計算
+                salary = int(round(total_stats_sum * GRADE_FACTOR[grade]))
+                contract_rule = cls._get_contract_rules(grade) # v2.4
 
+                # 4. 詳細數據結構
                 detailed_stats = {
                     "physical": {
                         "stamina": raw_stats.get("ath_stamina"),
@@ -212,25 +236,41 @@ class PlayerGenerator:
                     }
                 }
 
+                # 5. 建立 Player 物件
                 player = Player(
                     name=name,
-                    age=DEFAULT_AGE,
+                    age=age, # v2.4
                     height=height,
                     position=position,
                     rating=int(total_stats_sum / 20),
                     detailed_stats=detailed_stats,
                     user_id=user_id,
-                    team_id=None,
+                    team_id=team_id,
                     training_points=0
                 )
                 db.session.add(player)
-                db.session.flush()
+                db.session.flush() # 取得 player.id
+
+                # 6. 建立 Contract 物件 (v2.4)
+                # 若沒有 team_id (例如首抽預覽)，則暫時不建立 Contract，或建立無 team 的 Contract
+                if team_id:
+                    contract = Contract(
+                        player_id=player.id,
+                        team_id=team_id,
+                        salary=salary,
+                        years=contract_rule['years'],
+                        years_left=contract_rule['years'],
+                        role=contract_rule['role']
+                    )
+                    db.session.add(contract)
 
                 preview_data = {
                     "player_id": player.id,
                     "player_name": player.name,
-                    "overall_grade": grade,
-                    "start_salary": start_salary
+                    "grade": grade,
+                    "age": age,
+                    "salary": salary,
+                    "contract": contract_rule
                 }
                 new_players_preview.append(preview_data)
 

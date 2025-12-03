@@ -48,10 +48,15 @@ class Contract(db.Model):
     years = db.Column(db.Integer, default=1)
     years_left = db.Column(db.Integer, default=1)
     
+    # 新增角色定位 (Spec v2.4)
+    # Values: Star, Starter, Rotation, Role, Bench
+    role = db.Column(db.String(20), nullable=False, default='Bench')
+
+    # 球隊/球員選項 (Team/Player Option)
     option_type = db.Column(db.String(10), nullable=True) 
 
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
     def __repr__(self):
-        return f'<Contract Player:{self.player_id} ${self.salary}>'
+        return f'<Contract Player:{self.player_id} ${self.salary} ({self.role})>'
