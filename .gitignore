@@ -205,3 +205,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Custom Additions for ASBL ---
+
+# Windows 系統產生的縮圖暫存檔 (強烈建議加入)
+Thumbs.db
+Desktop.ini
+
+# Mac 系統檔案 (雖然你用 Windows，但為了團隊合作通常會加)
+.DS_Store
+
+# VS Code 編輯器設定 (建議忽略，每個人習慣不同)
+.vscode/
+
+# 資料庫備份檔 (避免不小心把備份的 SQL 上傳)
+*.sql
+
+# 未來可能產生的 Log 檔案或戰報
+logs/
+*.log
