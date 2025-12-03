@@ -8,7 +8,7 @@
 
 ---
 
-## 📅 2025-12-03 (Day 1) - 專案初始化
+## 📅 2025-12-03 08:00 (Day 1) - 專案初始化
 
 ### ✅ 已完成 (Completed)
 - [x] **專案結構建立**: 
@@ -48,3 +48,28 @@
 - [ ] **球員生成器**: 實作 `PlayerGenerator` class (100抽邏輯)。
 
 ---
+
+## 2025-12-03 10:00 ：資料庫架構與環境建置
+
+### 🚧 進度摘要
+完成專案基礎建設，建立 Flask 應用程式工廠模式，並成功連線 MySQL 資料庫，完成核心資料表建置。
+
+### 🛠️ 技術細節
+1.  **環境配置 (Configuration)**
+    - 建立 `config.py` 與 `.env` 機制，將敏感資訊（Database URL, Secret Key）與程式碼分離。
+    - 設定 `.gitignore` 排除 `.env` 檔案，確保資安。
+
+2.  **資料庫模型 (Database Models)**
+    - 使用 SQLAlchemy 定義 ORM 模型。
+    - **User**: 使用者帳號系統。
+    - **Team**: 球隊經營資訊（資金、聲望）。
+    - **Player**: 球員核心資料（包含 JSON 格式的詳細數據 `detailed_stats`）。
+    - **Contract**: 球員合約系統（薪資、年限、定位）。
+
+3.  **資料庫初始化 (Initialization)**
+    - 撰寫 `scripts/init_db.py` 自動化建表腳本。
+    - **優化**: 為所有資料表 (Table) 與欄位 (Column) 加上 `COMMENT` 中文註解，提升資料庫可讀性與維護性。
+
+### 🔜 下一步計畫
+- 撰寫球員生成演算法 (Gacha System)。
+- 實作「首抽」功能測試。
