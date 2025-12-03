@@ -16,8 +16,8 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # 註冊 Blueprints (之後會用到)
-    # from app.routes import main
-    # app.register_blueprint(main)
+    # 註冊 Blueprints
+    from app.routes.auth import auth_bp
+    app.register_blueprint(auth_bp)
 
     return app

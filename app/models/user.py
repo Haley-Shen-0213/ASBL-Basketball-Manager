@@ -1,10 +1,11 @@
 # app/models/user.py
 from app import db
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 class User(db.Model):
     __tablename__ = 'users'
-    __table_args__ = {'comment': '使用者帳號資料表'}  # 表格註解
+    __table_args__ = {'comment': '使用者帳號資料表'}
 
     id = db.Column(db.Integer, primary_key=True, comment='使用者 ID (主鍵)')
     username = db.Column(db.String(64), index=True, unique=True, nullable=False, comment='使用者名稱')
@@ -14,6 +15,14 @@ class User(db.Model):
     
     # 關聯
     team = db.relationship('Team', backref='owner', uselist=False)
+
+    def set_password(self, password):
+        """將明文密碼加密後存入"""
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        """驗證密碼是否正確"""
+        return check_password_hash(self.password_hash, password)
 
     def __repr__(self):
         return f'<User {self.username}>'

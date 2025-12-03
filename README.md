@@ -10,10 +10,12 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ### 1. 球員系統 (Player System)
 
+> ⚠️ **詳細技術規格**：關於球員生成演算法、常態分佈參數、開隊陣容檢核邏輯，請參閱 [ASBL_Player_System_Specification.md](ASBL_Player_System_Specification.md)。
+
 #### 屬性 (Attributes)
 球員能力值範圍為 **1~99**，分為五大類：
 *   **運動 (Athleticism)**: 體能、力量、速度、彈性。(隨年齡升降，不可訓練，僅能維持)
-*   **投籃 (Shooting)**: 準心、範圍、手感、射速。(其中 **手感** 與 **射速** 不可訓練)
+*   **投籃 (Shooting)**: 投籃準心、範圍、手感、出手速度。(其中 **手感** 與 **出手速度** 不可訓練)
 *   **防守 (Defense)**: 籃板、卡位、干擾、破壞。
 *   **進攻 (Offense)**: 跑位、運球、傳球、控球。
 *   **天賦 (Talent)**: 攻商、防商、健康(隱藏)、幸運(隱藏)。(永不改變)

@@ -1,55 +1,57 @@
 # app/models/player.py
 from app import db
-from datetime import datetime
+from sqlalchemy import JSON
 
 class Player(db.Model):
     __tablename__ = 'players'
-    __table_args__ = {'comment': '球員基本資料表'}
 
-    id = db.Column(db.Integer, primary_key=True, comment='球員 ID (主鍵)')
-    team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True, comment='所屬球隊 ID (NULL為自由球員)')
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False)
+    age = db.Column(db.Integer, default=18)
     
-    # 基本資料
-    name = db.Column(db.String(64), nullable=False, comment='球員姓名')
-    age = db.Column(db.Integer, default=18, comment='年齡')
-    position = db.Column(db.String(10), comment='守備位置 (PG/SG/SF/PF/C)')
-    rarity = db.Column(db.String(5), comment='稀有度 (SSR/SS/S/A/B/C/G)')
+    # 身高與位置
+    height = db.Column(db.Integer, nullable=False)
+    position = db.Column(db.String(10), nullable=False)
     
-    # 五大屬性
-    attr_athleticism = db.Column(db.Integer, default=0, comment='屬性: 運動能力')
-    attr_shooting = db.Column(db.Integer, default=0, comment='屬性: 投籃技巧')
-    attr_defense = db.Column(db.Integer, default=0, comment='屬性: 防守能力')
-    attr_offense = db.Column(db.Integer, default=0, comment='屬性: 進攻意識')
-    attr_talent = db.Column(db.Integer, default=0, comment='屬性: 天賦潛力 (固定值)')
-    
-    # 詳細屬性
-    detailed_stats = db.Column(db.JSON, nullable=True, comment='詳細數據 (JSON格式: 包含細項數值)')
+    # 1. 已移除 weight 欄位
+    # 2. 新增 training_points 欄位
+    training_points = db.Column(db.Integer, default=0, nullable=False)
 
-    # 成長數據
-    training_points = db.Column(db.Integer, default=0, comment='現有訓練點數')
-    minutes_played_total = db.Column(db.Integer, default=0, comment='生涯總上場時間 (分鐘)')
+    # 綜合評價 (Rating)
+    rating = db.Column(db.Integer)
+
+    # 詳細數據 (使用通用 JSON 型態，支援 MySQL)
+    detailed_stats = db.Column(JSON) 
 
     # 關聯
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=True)
+
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+    
+    # 建立與 Contract 的關聯
     contract = db.relationship('Contract', backref='player', uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f'<Player {self.name} ({self.rarity})>'
+        return f'<Player {self.name} ({self.position})>'
 
 class Contract(db.Model):
     __tablename__ = 'contracts'
-    __table_args__ = {'comment': '球員合約資料表'}
 
-    id = db.Column(db.Integer, primary_key=True, comment='合約 ID')
-    player_id = db.Column(db.Integer, db.ForeignKey('players.id'), unique=True, nullable=False, comment='球員 ID')
+    id = db.Column(db.Integer, primary_key=True)
     
-    salary = db.Column(db.Integer, nullable=False, comment='薪資金額')
-    years_left = db.Column(db.Integer, default=1, comment='剩餘合約年限')
+    player_id = db.Column(db.Integer, db.ForeignKey('players.id'), nullable=False, unique=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
     
-    # 角色定位
-    role = db.Column(db.String(20), nullable=False, comment='球隊定位 (Star/Starter/Rotation...)')
+    salary = db.Column(db.Integer, nullable=False)
+    years = db.Column(db.Integer, default=1)
+    years_left = db.Column(db.Integer, default=1)
     
-    # 簽約類型
-    contract_type = db.Column(db.String(20), default='Regular', comment='合約類型 (Rookie/Max/Min...)')
+    option_type = db.Column(db.String(10), nullable=True) 
+
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
     def __repr__(self):
-        return f'<Contract {self.role} ${self.salary}>'
+        return f'<Contract Player:{self.player_id} ${self.salary}>'
