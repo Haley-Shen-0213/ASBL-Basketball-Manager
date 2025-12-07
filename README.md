@@ -61,25 +61,32 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ---
 
-### 3. 交易系統 (Trade System)
+### 3. 比賽引擎 (Match Engine) - v1.4
 
-玩家可將球員掛單進行交換，系統定時自動匹配。
-*   **匹配條件**: 人數變化、薪資變化、等級變化。
-*   **等級限制**: 交換等級落差不可超過 2 階 (如 A 最多換 SS)。
-*   **薪資限制**: 交易後總薪資不可超過 100% (除非薪資持平)。
+本系統採用純文字模擬引擎，依據 **ASBL Spec v1.4** 進行開發。
+
+#### 核心機制
+*   **體力系統 (Stamina)**: 
+    *   球員能力值隨體力下降而線性衰退。
+    *   消耗公式：`3.0 * [1 + (1 - 體能%)] + (1 - 健康%)`。
+*   **數據歸屬 (Data Attribution)**:
+    *   **非隨機分配**：得分、籃板、助攻等數據依據球員能力值（如身高、智商、運球）進行權重分配。
+    *   **戰術地位**：明星球員 (Star) 擁有更高的出手權重。
+    *   **真實性優化**：控球後衛更容易獲得助攻，中鋒更容易獲得籃板與封蓋。
+*   **關鍵時刻 (Clutch)**: 第四節最後 3 分鐘與延長賽強制換上最強陣容 (Best 5)。
 
 ---
 
 ## 📅 開發時程 (Development Roadmap)
 
-### Phase 1: 核心架構 (Foundation) - [進行中]
-*   [ ] **資料庫建置**: 設計 User, Team, Player, Contract 等核心 Table。
-*   [ ] **球員生成引擎**: 實作 100 抽邏輯、G~SSR 分級演算法、屬性隨機生成。
-*   [ ] **合約系統**: 實作角色定位、薪資計算與簽約邏輯 (含 65% 限制檢查)。
-*   [ ] **時間分配演算法**: 實作 `calculate_minutes(roster)` 函數。
+### Phase 1: 核心架構 (Foundation) - [已完成]
+*   [x] **資料庫建置**: 設計 User, Team, Player, Contract 等核心 Table。
+*   [x] **球員生成引擎**: 實作 100 抽邏輯、G~SSR 分級演算法、屬性隨機生成。
+*   [x] **合約系統**: 實作角色定位、薪資計算與簽約邏輯。
+*   [x] **時間分配演算法**: 實作 `calculate_minutes(roster)` 函數。
 
-### Phase 2: 比賽與成長 (Game Loop) - [預計 4 週]
-*   [ ] **比賽引擎**: 導入時間分配結果，計算比賽勝負與數據。
+### Phase 2: 比賽與成長 (Game Loop) - [進行中]
+*   [x] **比賽引擎 (v1.4)**: 實作回合制判定、體力系統、數據歸屬機制。
 *   [ ] **成長系統**: 實作年齡檢查、點數計算 (成長/巔峰/退化公式)。
 *   [ ] **排程系統**: 每日自動結算比賽、更新球員年齡/合約天數。
 
@@ -99,18 +106,19 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ## 📂 目錄結構 (Directory Structure)
 
+```text
 ASBL-Basketball-Manager/
 ├── app/
 │   ├── __init__.py          # App Factory
 │   ├── models/              # SQLAlchemy Models
-│   │   ├── user.py
-│   │   ├── player.py
-│   │   └── ...
 │   ├── routes/              # Blueprints
 │   ├── services/            # Business Logic (Engine, Contract...)
 │   └── templates/           # Jinja2 HTML
 ├── scripts/                 # Automation Scripts
 │   ├── init_db.py           # Initialize Database
-│   └── daily_sim.py         # Daily Match Simulation
+│   ├── simulate_match.py    # [NEW] Match Simulation Engine (v1.4)
+│   ├── simulate_team_creation.py # Team Generation Test
+│   └── terminal.py          # Terminal Utils
+├── ASBL_Spec_v1.4.md        # Match Engine Specification
 ├── config.py                # Configuration
 └── run.py                   # Entry Point
