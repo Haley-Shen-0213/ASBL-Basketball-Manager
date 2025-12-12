@@ -167,3 +167,27 @@
 ### 🔜 下一步計畫
 - 開發前端比賽直播介面 (Play-by-Play UI)。
 - 實作球員成長系統 (Training & Aging)。
+
+## 2025-12-12 10:00 ：配置檔重構與 Spec v2.6 屬性標準化 (Refactoring & Spec v2.6)
+
+### ✅ 進度摘要
+為了因應未來大規模數據驗證與平衡性調整的需求，本次進行了系統重構。將原本散落在程式碼中的「魔術數字 (Magic Numbers)」與「生成規則」全數抽離至 YAML 設定檔，並統一了屬性命名規範。
+
+### 🛠️ 技術細節
+1.  **配置檔中心化 (Configuration Centralization)**
+    - **新增 `config/game_config.yaml`**: 集中管理球員生成機率、薪資係數、能力值上下限、比賽引擎參數等。
+    - **新增 `GameConfigLoader`**: 實作 Singleton 模式的設定檔讀取器，支援熱重載 (Reload) 與環境變數路徑設定。
+
+2.  **球員生成器重構 (PlayerGenerator Refactor)**
+    - **Spec v2.6 實作**: 更新 `ATTR_MAPPING`，將 Config Key 與 DB Field 進行標準化對照 (例如 `shot_touch` 對應 `offense.touch`)。
+    - **移除硬編碼**: `_generate_stats_by_grade` 與 `generate_payload` 改為從 ConfigLoader 讀取參數。
+    - **大數據支援**: 新增 `to_flat_dict` 方法，可將巢狀的 Player Payload 攤平為單層 Dictionary，方便後續匯出 CSV 進行 Pandas 分析。
+
+3.  **規格書更新**
+    - **ASBL_Player_System_Specification.md (v2.6)**: 新增詳細的屬性對照表 (Config Key vs DB Field)，確保開發一致性。
+
+### 📝 筆記
+- **優化方向**: 這次重構雖然沒有改變外部功能，但大幅提升了系統的可維護性。接下來進行大數據測試時，若發現某個等級太強，只需修改 YAML 檔即可，無需改動程式碼。
+
+### 🔜 下一步計畫
+- **大數據驗證 (Big Data Verification)**: 開發 Python 腳本，生成 100萬筆球員資料，驗證常態分佈、等級機率與能力值總和是否符合 Spec v2.6 預期。

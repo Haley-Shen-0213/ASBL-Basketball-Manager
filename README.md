@@ -12,13 +12,13 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 > ⚠️ **詳細技術規格**：關於球員生成演算法、常態分佈參數、開隊陣容檢核邏輯，請參閱 [ASBL_Player_System_Specification.md](ASBL_Player_System_Specification.md)。
 
-#### 屬性 (Attributes)
+#### 屬性 (Attributes) - Spec v2.6
 球員能力值範圍為 **1~99**，分為五大類：
-*   **運動 (Athleticism)**: 體能、力量、速度、彈性。(隨年齡升降，不可訓練，僅能維持)
-*   **投籃 (Shooting)**: 投籃準心、範圍、手感、出手速度。(其中 **手感** 與 **出手速度** 不可訓練)
-*   **防守 (Defense)**: 籃板、卡位、干擾、破壞。
-*   **進攻 (Offense)**: 跑位、運球、傳球、控球。
-*   **天賦 (Talent)**: 攻商、防商、健康(隱藏)、幸運(隱藏)。(永不改變)
+*   **運動 (Physical)**: 體力、力量、速度、彈跳、健康(隱藏)。
+*   **投籃 (Offense - Shooting)**: 投籃準心、射程、手感(不可訓)、出手速度(不可訓)。
+*   **進攻 (Offense - Skill)**: 傳球、運球、控球、跑位。
+*   **防守 (Defense)**: 籃板、卡位、干擾、抄截。
+*   **天賦 (Mental)**: 進攻智商、防守智商、運氣(隱藏)。(永不改變)
 
 #### 年齡生成 (Age Generation)
 *   **SSR**: 固定 18 歲 (極具培養價值)。
@@ -106,19 +106,22 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ## 📂 目錄結構 (Directory Structure)
 
-```text
 ASBL-Basketball-Manager/
 ├── app/
 │   ├── __init__.py          # App Factory
 │   ├── models/              # SQLAlchemy Models
 │   ├── routes/              # Blueprints
 │   ├── services/            # Business Logic (Engine, Contract...)
+│   ├── utils/               # Utilities (ConfigLoader...)
 │   └── templates/           # Jinja2 HTML
+├── config/
+│   └── game_config.yaml     # [NEW] Centralized Game Configuration
 ├── scripts/                 # Automation Scripts
 │   ├── init_db.py           # Initialize Database
-│   ├── simulate_match.py    # [NEW] Match Simulation Engine (v1.4)
+│   ├── simulate_match.py    # Match Simulation Engine (v1.4)
 │   ├── simulate_team_creation.py # Team Generation Test
 │   └── terminal.py          # Terminal Utils
 ├── ASBL_Spec_v1.4.md        # Match Engine Specification
-├── config.py                # Configuration
+├── ASBL_Player_System_Specification.md # Player System Spec (v2.6)
+├── config.py                # App Configuration
 └── run.py                   # Entry Point

@@ -5,73 +5,51 @@ from sqlalchemy.sql.expression import func
 from app import db
 from app.models.player import Player, Contract
 from app.models.system import NameLibrary
+from app.utils.game_config_loader import GameConfigLoader
 
 # ==========================================
 # ASBL Player Generator Service
-# Based on Specification v2.4
+# Based on Specification v2.6 (Attributes Updated)
 # ==========================================
-
-STAT_MIN, STAT_MAX = 1, 99
-
-OVERALL_GRADES = ["G", "C", "B", "A", "S", "SS", "SSR"]
-OVERALL_GRADE_WEIGHTS = [0.28, 0.26, 0.22, 0.14, 0.07, 0.025, 0.005]
-
-GRADE_FACTOR = {
-    "G": 1.0, "C": 1.1, "B": 1.3, "A": 1.6, "S": 2.0, "SS": 2.5, "SSR": 3.0,
-}
-
-# v2.4 新增: 年齡浮動範圍 (18 + random(0, offset))
-AGE_OFFSETS = {
-    "SSR": 0, # 固定 18
-    "SS": 1,  # 18-19
-    "S": 2,   # 18-20
-    "A": 3,   # 18-21
-    "B": 4,   # 18-22
-    "C": 5,   # 18-23
-    "G": 6    # 18-24
-}
-
-# v2.4 新增: 初始合約規則
-CONTRACT_RULES = {
-    "SSR": {"years": 4, "role": "Star"},
-    "SS":  {"years": 4, "role": "Starter"},
-    "S":   {"years": 4, "role": "Starter"},
-    "A":   {"years": 2, "role": "Rotation"},
-    "B":   {"years": 2, "role": "Rotation"},
-    "C":   {"years": 1, "role": "Role"},
-    "G":   {"years": 1, "role": "Bench"},
-}
-
-UNTRAINABLE_RULES = {
-    "G":  {"sum_min": 10,  "sum_max": 400, "stat_min": 1, "stat_max": 99},
-    "C":  {"sum_min": 399, "sum_max": 600, "stat_min": 1, "stat_max": 99},
-    "B":  {"sum_min": 599, "sum_max": 700, "stat_min": 1, "stat_max": 99},
-    "A":  {"sum_min": 699, "sum_max": 800, "stat_min": 10, "stat_max": 99},
-    "S":  {"sum_min": 799, "sum_max": 900, "stat_min": 20, "stat_max": 99},
-    "SS": {"sum_min": 900, "sum_max": 950, "stat_min": 30, "stat_max": 99},
-    "SSR":{"sum_min": 951, "sum_max": 990, "stat_min": 91, "stat_max": 99},
-}
-
-TRAINABLE_CAPS = {
-    "G": 800, "C": 700, "B": 650, "A": 600, "S": 550, "SS": 550, "SSR": 550
-}
-
-UNTRAINABLE_KEYS = [
-    "ath_stamina", "ath_strength", "ath_speed", "ath_jump",
-    "shot_touch", "shot_release",
-    "talent_offiq", "talent_defiq", "talent_health", "talent_luck",
-]
-
-TRAINABLE_KEYS = [
-    "shot_accuracy", "shot_range",
-    "def_rebound", "def_boxout", "def_contest", "def_disrupt",
-    "off_move", "off_dribble", "off_pass", "off_handle",
-]
 
 class PlayerGenerator:
     
+    # [Spec v2.6 Section 2.3] 屬性映射表
+    # Key: game_config.yaml 中的設定鍵值
+    # Value: (Category, DB_Field_Key) 存入資料庫的結構路徑
+    ATTR_MAPPING = {
+        # === Untrainable Stats (天賦) ===
+        "ath_stamina":   ("physical", "stamina"),
+        "ath_strength":  ("physical", "strength"),
+        "ath_speed":     ("physical", "speed"),
+        "ath_jump":      ("physical", "jumping"),
+        "talent_health": ("physical", "health"),
+        
+        "shot_touch":    ("offense", "touch"),    # 修正: inside -> touch
+        "shot_release":  ("offense", "release"),  # 修正: 獨立欄位，不再與 accuracy 衝突
+        
+        "talent_offiq":  ("mental", "off_iq"),
+        "talent_defiq":  ("mental", "def_iq"),
+        "talent_luck":   ("mental", "luck"),
+        
+        # === Trainable Stats (技術) ===
+        "shot_accuracy": ("offense", "accuracy"), # 修正: mid_range -> accuracy
+        "shot_range":    ("offense", "range"),    # 修正: three_point -> range
+        
+        "off_pass":      ("offense", "passing"),
+        "off_dribble":   ("offense", "dribble"),
+        "off_handle":    ("offense", "handle"),
+        "off_move":      ("offense", "move"),
+        
+        "def_rebound":   ("defense", "rebound"),
+        "def_boxout":    ("defense", "boxout"),
+        "def_contest":   ("defense", "contest"),
+        "def_disrupt":   ("defense", "disrupt")
+    }
+
     @staticmethod
     def _get_random_text(category, length_filter=None):
+        """從資料庫隨機取得姓名"""
         query = NameLibrary.query.filter_by(category=category)
         
         if length_filter:
@@ -83,6 +61,7 @@ class PlayerGenerator:
                 query = query.filter(func.char_length(NameLibrary.text) >= 3)
         
         obj = query.order_by(func.random()).first()
+        # Fallback: 如果找不到特定長度的字，則隨機取一個
         if not obj and length_filter:
              obj = NameLibrary.query.filter_by(category=category).order_by(func.random()).first()
              
@@ -90,7 +69,9 @@ class PlayerGenerator:
 
     @classmethod
     def _generate_name(cls):
+        """生成符合規則的姓名 (Spec v2.2)"""
         r = random.random()
+        # 姓氏長度機率: 單字(80%), 雙字(15%), 長字(5%)
         if r < 0.80: len_filter = '1'
         elif r < 0.95: len_filter = '2'
         else: len_filter = '3+'
@@ -99,6 +80,7 @@ class PlayerGenerator:
         first_name = cls._get_random_text('first') or "氏"
         full_name = last_name + first_name
         
+        # 補字邏輯
         should_add_char = False
         if len(full_name) <= 2:
             if random.choice([True, False]): should_add_char = True
@@ -107,6 +89,7 @@ class PlayerGenerator:
         
         if should_add_char:
             second_char = cls._get_random_text('first')
+            # 防呆: 只有當補的字是單字時才加上，避免變成四字以上怪名
             if second_char and len(second_char) == 1:
                 full_name += second_char
         
@@ -114,6 +97,7 @@ class PlayerGenerator:
 
     @staticmethod
     def _generate_height():
+        """生成身高 (Box-Muller Transform)"""
         mean, std_dev = 195, 10
         min_h, max_h = 160, 230
         while True:
@@ -125,6 +109,7 @@ class PlayerGenerator:
 
     @staticmethod
     def _pick_position(height_cm):
+        """根據身高決定位置 (機率分佈)"""
         r = random.random()
         if height_cm < 190:
             return "PG" if r < 0.60 else "SG"
@@ -145,17 +130,25 @@ class PlayerGenerator:
             elif r < 0.55: return "PF"
             else: return "C"
 
-    @staticmethod
-    def _generate_stats_by_grade(grade):
-        rule = UNTRAINABLE_RULES[grade]
-        stat_min, stat_max = rule["stat_min"], rule["stat_max"]
-        stats = {k: stat_min for k in UNTRAINABLE_KEYS}
-        target_sum = random.randint(rule["sum_min"], rule["sum_max"])
+    @classmethod
+    def _generate_stats_by_grade(cls, grade):
+        """根據等級生成屬性 (Spec v2.3 & v2.6)"""
+        untrainable_keys = GameConfigLoader.get('generation.attributes.untrainable')
+        trainable_keys = GameConfigLoader.get('generation.attributes.trainable')
+        
+        u_rule = GameConfigLoader.get(f'generation.untrainable_rules.{grade}')
+        t_cap = GameConfigLoader.get(f'generation.trainable_caps.{grade}')
+
+        # 1. 生成 Untrainable Stats (天賦)
+        stat_min, stat_max = u_rule["stat_min"], u_rule["stat_max"]
+        stats = {k: stat_min for k in untrainable_keys}
+        
+        target_sum = random.randint(u_rule["sum_min"], u_rule["sum_max"])
         remaining = target_sum - sum(stats.values())
-        capacity = {k: (stat_max - stats[k]) for k in UNTRAINABLE_KEYS}
+        capacity = {k: (stat_max - stats[k]) for k in untrainable_keys}
 
         while remaining > 0:
-            candidates = [k for k in UNTRAINABLE_KEYS if capacity[k] > 0]
+            candidates = [k for k in untrainable_keys if capacity[k] > 0]
             if not candidates: break
             k = random.choice(candidates)
             step = min(remaining, capacity[k], random.randint(1, 3))
@@ -163,113 +156,150 @@ class PlayerGenerator:
             capacity[k] -= step
             remaining -= step
         
-        cap = TRAINABLE_CAPS[grade]
+        # 2. 生成 Trainable Stats (技術) - Reroll 機制
         while True:
-            trainable_stats = {k: random.randint(STAT_MIN, STAT_MAX) for k in TRAINABLE_KEYS}
-            if sum(trainable_stats.values()) <= cap:
+            trainable_stats = {k: random.randint(1, 99) for k in trainable_keys}
+            if sum(trainable_stats.values()) <= t_cap:
                 break
         
         stats.update(trainable_stats)
         return stats
 
-    # v2.4 新增: 根據等級生成年齡
-    @staticmethod
-    def _generate_age(grade):
-        offset = AGE_OFFSETS.get(grade, 6)
-        return 18 + random.randint(0, offset)
+    @classmethod
+    def generate_payload(cls, specific_grade=None):
+        """
+        [核心] 生成單一球員數據 Payload (不寫入 DB)
+        """
+        if specific_grade:
+            grade = specific_grade
+        else:
+            grades = GameConfigLoader.get('generation.grades')
+            weights = GameConfigLoader.get('generation.grade_weights')
+            grade = random.choices(grades, weights=weights, k=1)[0]
 
-    # v2.4 新增: 取得合約規則
-    @staticmethod
-    def _get_contract_rules(grade):
-        return CONTRACT_RULES.get(grade, {"years": 1, "role": "Bench"})
+        name = cls._generate_name()
+        height = cls._generate_height()
+        position = cls._pick_position(height)
+        
+        # Spec v2.4 年齡生成
+        age_base = GameConfigLoader.get('generation.age_rules.base', 18)
+        age_offset = GameConfigLoader.get(f'generation.age_rules.offsets.{grade}', 6)
+        age = age_base + random.randint(0, age_offset)
 
+        raw_stats = cls._generate_stats_by_grade(grade)
+        total_stats_sum = sum(raw_stats.values())
+
+        # Spec v2.1 薪資計算
+        salary_factor = GameConfigLoader.get(f'generation.salary_factors.{grade}', 1.0)
+        salary = int(round(total_stats_sum * salary_factor))
+
+        # Spec v2.4 初始合約
+        contract_rule = GameConfigLoader.get(f'generation.contracts.{grade}')
+        
+        # 根據 ATTR_MAPPING 組裝詳細屬性結構
+        detailed_stats = {
+            "physical": {}, "offense": {}, "defense": {}, "mental": {}
+        }
+        
+        for config_key, (category, model_key) in cls.ATTR_MAPPING.items():
+            if config_key in raw_stats:
+                detailed_stats[category][model_key] = raw_stats[config_key]
+
+        return {
+            "name": name,
+            "grade": grade,
+            "age": age,
+            "height": height,
+            "position": position,
+            "rating": int(total_stats_sum / 20),
+            "salary": salary,
+            "contract_rule": contract_rule,
+            "detailed_stats": detailed_stats,
+            "raw_stats": raw_stats
+        }
+
+    # ====================================================
+    # 輸出方式 1: 大數據測試用 (CSV/Flat Format)
+    # ====================================================
+    @staticmethod
+    def to_flat_dict(payload):
+        """
+        將巢狀的 payload 攤平成單層字典，方便匯出 CSV 或 Pandas 分析。
+        """
+        flat = {
+            "name": payload['name'],
+            "grade": payload['grade'],
+            "age": payload['age'],
+            "height": payload['height'],
+            "position": payload['position'],
+            "rating": payload['rating'],
+            "salary": payload['salary'],
+            "contract_years": payload['contract_rule']['years'],
+            "contract_role": payload['contract_rule']['role']
+        }
+        
+        # 將詳細屬性攤平，例如: physical_speed, offense_accuracy
+        for category, stats in payload['detailed_stats'].items():
+            for key, val in stats.items():
+                flat[f"{category}_{key}"] = val
+                
+        return flat
+
+    # ====================================================
+    # 輸出方式 2: 正式營運用 (MySQL/SQLAlchemy)
+    # ====================================================
+    @classmethod
+    def save_to_db(cls, payload, user_id=None, team_id=None):
+        """
+        將 Payload 轉換為 ORM 物件並寫入資料庫
+        """
+        player = Player(
+            name=payload['name'],
+            age=payload['age'],
+            height=payload['height'],
+            position=payload['position'],
+            rating=payload['rating'],
+            detailed_stats=payload['detailed_stats'],
+            user_id=user_id,
+            team_id=team_id,
+            training_points=0
+        )
+        db.session.add(player)
+        db.session.flush()
+
+        contract_data = None
+        if team_id:
+            rule = payload['contract_rule']
+            contract = Contract(
+                player_id=player.id,
+                team_id=team_id,
+                salary=payload['salary'],
+                years=rule['years'],
+                years_left=rule['years'],
+                role=rule['role']
+            )
+            db.session.add(contract)
+            contract_data = rule
+
+        return player, contract_data
+
+    # ====================================================
+    # 舊接口相容 (預設走 DB)
+    # ====================================================
     @classmethod
     def generate_and_persist(cls, count=1, user_id=None, team_id=None):
         new_players_preview = []
         try:
             for _ in range(count):
-                # 1. 基礎生成
-                grade = random.choices(OVERALL_GRADES, weights=OVERALL_GRADE_WEIGHTS, k=1)[0]
-                name = cls._generate_name()
-                height = cls._generate_height()
-                position = cls._pick_position(height)
-                age = cls._generate_age(grade) # v2.4
+                payload = cls.generate_payload()
+                player, contract_rule = cls.save_to_db(payload, user_id, team_id)
                 
-                # 2. 數值生成
-                raw_stats = cls._generate_stats_by_grade(grade)
-                total_stats_sum = sum(raw_stats.values())
-                
-                # 3. 薪資與合約計算
-                salary = int(round(total_stats_sum * GRADE_FACTOR[grade]))
-                contract_rule = cls._get_contract_rules(grade) # v2.4
-
-                # 4. 詳細數據結構
-                detailed_stats = {
-                    "physical": {
-                        "stamina": raw_stats.get("ath_stamina"),
-                        "strength": raw_stats.get("ath_strength"),
-                        "speed": raw_stats.get("ath_speed"),
-                        "jumping": raw_stats.get("ath_jump"),
-                        "health": raw_stats.get("talent_health")
-                    },
-                    "offense": {
-                        "inside": raw_stats.get("shot_touch"),
-                        "mid_range": raw_stats.get("shot_accuracy"),
-                        "three_point": raw_stats.get("shot_range"),
-                        "passing": raw_stats.get("off_pass"),
-                        "dribble": raw_stats.get("off_dribble"),
-                        "handle": raw_stats.get("off_handle"),
-                        "move": raw_stats.get("off_move")
-                    },
-                    "defense": {
-                        "rebound": raw_stats.get("def_rebound"),
-                        "boxout": raw_stats.get("def_boxout"),
-                        "contest": raw_stats.get("def_contest"),
-                        "disrupt": raw_stats.get("def_disrupt"),
-                        "perimeter": raw_stats.get("def_disrupt"),
-                        "interior": raw_stats.get("def_contest")
-                    },
-                    "mental": {
-                        "off_iq": raw_stats.get("talent_offiq"),
-                        "def_iq": raw_stats.get("talent_defiq"),
-                        "luck": raw_stats.get("talent_luck")
-                    }
-                }
-
-                # 5. 建立 Player 物件
-                player = Player(
-                    name=name,
-                    age=age, # v2.4
-                    height=height,
-                    position=position,
-                    rating=int(total_stats_sum / 20),
-                    detailed_stats=detailed_stats,
-                    user_id=user_id,
-                    team_id=team_id,
-                    training_points=0
-                )
-                db.session.add(player)
-                db.session.flush() # 取得 player.id
-
-                # 6. 建立 Contract 物件 (v2.4)
-                # 若沒有 team_id (例如首抽預覽)，則暫時不建立 Contract，或建立無 team 的 Contract
-                if team_id:
-                    contract = Contract(
-                        player_id=player.id,
-                        team_id=team_id,
-                        salary=salary,
-                        years=contract_rule['years'],
-                        years_left=contract_rule['years'],
-                        role=contract_rule['role']
-                    )
-                    db.session.add(contract)
-
                 preview_data = {
                     "player_id": player.id,
                     "player_name": player.name,
-                    "grade": grade,
-                    "age": age,
-                    "salary": salary,
+                    "grade": payload['grade'],
+                    "age": player.age,
+                    "salary": payload['salary'],
                     "contract": contract_rule
                 }
                 new_players_preview.append(preview_data)
@@ -279,5 +309,5 @@ class PlayerGenerator:
 
         except Exception as e:
             db.session.rollback()
-            print(f"Error: {e}")
+            print(f"Error in generate_and_persist: {e}")
             return {"total_inserted": 0, "preview": []}

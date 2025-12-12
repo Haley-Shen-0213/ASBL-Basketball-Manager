@@ -1,0 +1,279 @@
+# =============================================================================
+# ASBL 遊戲核心設定檔 (Final Version - Commented)
+# 對應規格書: 
+#   - Player System Specification v2.5
+#   - Match Engine Specification v1.4
+# 路徑 config/game_config.yaml
+# =============================================================================
+
+system: # 系統設定
+  season_days: 91 # 賽季天數
+  games_per_season: 70 # 賽季比賽數
+
+# =============================================================================
+# 1. 球員生成設定 (Player Generation)
+# 對應規格書: Player System v2.5
+# =============================================================================
+generation:
+  # [Spec v2.5 Section 2.3] 等級與機率
+  grades: ["SSR", "SS", "S", "A", "B", "C", "G"]
+  grade_weights: [0.005, 0.025, 0.07, 0.14, 0.22, 0.26, 0.28]
+  
+  # [Spec v2.5 Section 4.1.1] 薪資係數
+  # 計算公式: 球員薪資 = (20項屬性總和) * 該等級係數
+  # 用途: 決定球員身價，等級越高，每一點能力值換算的薪水越高
+  salary_factors:
+    SSR: 3.0
+    SS: 2.5
+    S: 2.0
+    A: 1.6
+    B: 1.3
+    C: 1.1
+    G: 1.0
+
+  # [Spec v2.5 Section 2.4] 年齡生成規則
+  # 用途: 決定新秀的初始年齡，SSR 最年輕(潛力最大)，G 級平均年齡較大
+  age_rules:
+    base: 18
+    offsets: {SSR: 0, SS: 1, S: 2, A: 3, B: 4, C: 5, G: 6}
+
+  # [Spec v2.5 Section 4.1.2] 初始合約規則
+  # 用途: 生成球員時自動賦予的合約長度與角色定位
+  contracts:
+    SSR: {years: 4, role: "Star"}
+    SS:  {years: 4, role: "Starter"}
+    S:   {years: 4, role: "Starter"}
+    A:   {years: 2, role: "Rotation"}
+    B:   {years: 2, role: "Rotation"}
+    C:   {years: 1, role: "Role"}
+    G:   {years: 1, role: "Bench"}
+
+  # [Spec v2.5 Section 2.3.1 & 2.3.2] 屬性定義
+  attributes:
+    untrainable: ["ath_stamina", "ath_strength", "ath_speed", "ath_jump", "shot_touch", "shot_release", "talent_offiq", "talent_defiq", "talent_health", "talent_luck"]
+    trainable: ["shot_accuracy", "shot_range", "def_rebound", "def_boxout", "def_contest", "def_disrupt", "off_move", "off_dribble", "off_pass", "off_handle"]
+
+  # [Spec v2.5 Section 2.3.1] 天賦生成規則 (Untrainable)
+  untrainable_rules:
+    G:   {sum_min: 10,  sum_max: 400, stat_min: 1, stat_max: 99}
+    C:   {sum_min: 399, sum_max: 600, stat_min: 1, stat_max: 99}
+    B:   {sum_min: 599, sum_max: 700, stat_min: 1, stat_max: 99}
+    A:   {sum_min: 699, sum_max: 800, stat_min: 10, stat_max: 99}
+    S:   {sum_min: 799, sum_max: 900, stat_min: 20, stat_max: 99}
+    SS:  {sum_min: 900, sum_max: 950, stat_min: 30, stat_max: 99}
+    SSR: {sum_min: 951, sum_max: 990, stat_min: 91, stat_max: 99}
+
+  # [Spec v2.5 Section 2.3.2] 技術反向總上限 (Trainable Caps)
+  # 用途: 限制可訓練屬性的初始總和，等級越低上限越高(即戰力)，等級越高上限越低(需培養)
+  trainable_caps:
+    G: 800
+    C: 700
+    B: 650
+    A: 600
+    S: 550
+    SS: 550
+    SSR: 550
+
+# =============================================================================
+# 2. 團隊與時間設定 (Team & Minutes)
+# 對應規格書: Player System v2.5 Section 5 & 6
+# =============================================================================
+team_creation:
+  # [Spec v2.5 Section 5] 開隊陣容檢核標準
+  composition_count: {SSR: 1, SS: 1, S: 1, A: 2, B: 2, C: 3, G: 5} # 總共 15 人
+  validation:
+    min_c: 2       # 最少中鋒數
+    min_pg: 2      # 最少控衛數
+    min_guards: 4  # PG+SG 總數下限
+    min_forwards: 4 # SF+PF 總數下限
+
+minutes_distribution:
+  # [Spec v2.5 Section 6] 上場時間分配
+  total_minutes: 240
+  roles:
+    Star:     {base: 30, min_w: -1, max_w: 5}
+    Starter:  {base: 20, min_w: -2, max_w: 7}
+    Rotation: {base: 10, min_w: 5,  max_w: 15}
+    Role:     {base: 0,  min_w: 5,  max_w: 12}
+    Bench:    {base: 0,  min_w: 0,  max_w: 10}
+
+# =============================================================================
+# 3. 比賽引擎設定 (Match Engine)
+# 對應規格書: Match Engine Specification v1.4
+# =============================================================================
+match_engine:
+  # === 全域設定 (General Rules) ===
+  general:
+    quarter_length: 720            # 每節比賽秒數 (12分鐘)
+    ot_length: 300                 # 延長賽秒數 (5分鐘)
+    
+    # [Spec v1.4 Section 2.1 - 2.3] 體力系統參數
+    stamina_recovery_halftime: 20  # 中場休息回復體力值 (上限100)
+    stamina_nerf_threshold: 80     # 體力低於此數值開始，能力值會線性衰退
+    stamina_min_multiplier: 0.21   # 體力耗盡(剩1)時，能力值剩下的百分比 (21%)
+    stamina_drain_coeff: 3.0       # 體力消耗公式的倍率係數 (數值越大消耗越快)
+
+  # [Spec v1.4 Section 2.3 & 2.4] 體力計算公式成分
+  stamina_system:
+    drain_attrs: ['ath_stamina', 'talent_health']   # 消耗公式: 3.0 * [1+(1-體能)] + (1-健康)
+    recover_attrs: ['ath_stamina', 'talent_health'] # 恢復公式: 1.0 + 體能 - (1-健康)
+
+  # [Spec v1.4 Section 1.1] 位置能力評分 (Positional Scoring)
+  # 用途: 決定 Best 5 與 輪替順序，定義每個位置看重哪些屬性
+  positional_scoring:
+    C:  ['height', 'ath_strength', 'def_rebound', 'def_boxout', 'def_contest']
+    PF: ['height', 'ath_strength', 'def_rebound', 'def_boxout', 'def_contest', 'ath_jump', 'ath_speed']
+    SF: ['ALL_STATS', 'height'] # 特殊關鍵字 ALL_STATS 代表所有屬性總和
+    SG: ['shot_touch', 'shot_release', 'talent_offiq', 'talent_defiq', 'def_contest', 'def_disrupt', 'shot_range']
+    PG: ['ath_speed', 'talent_offiq', 'def_disrupt', 'off_dribble', 'off_pass', 'off_handle', '-height'] # 負號代表扣分
+
+  # [Spec v1.4 Section 5.1.A] 屬性池定義
+  # 用途: 定義「進攻總值」與「防守總值」包含哪些屬性
+  attr_pools:
+    off_13: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'shot_accuracy', 'shot_range', 'off_move', 'off_dribble', 'off_pass', 'off_handle']
+    def_12: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 'off_move']
+
+  # === 後場階段 (Backcourt Phase) [Spec v1.4 Section 3] ===
+  backcourt:
+    params:
+      time_base_min: 1.0         # 基礎過半場時間下限 (秒)
+      time_base_max: 8.0         # 基礎過半場時間上限 (秒)
+      time_coeff: 0.008          # 時間修正係數: (防守總值 - 進攻總值) * 0.008
+      violation_threshold: 8.0   # 超過此秒數 -> 8秒違例 (失誤)
+      steal_threshold: 3.0       # 超過此秒數 -> 觸發後場抄截判定
+      fastbreak_threshold: 1.0   # 低於此秒數 -> 觸發快攻判定
+      steal_base_prob: 0.01      # 後場抄截基礎機率 (1%)
+      steal_bonus_coeff: 0.001   # 抄截機率加成: (防守差值) * 0.1%
+
+    formulas:
+      # [Spec 3.1] 屬性池
+      off_sum: ['off_dribble', 'off_pass', 'talent_offiq']       # 決定過半場速度的進攻屬性
+      def_sum: ['def_disrupt', 'def_contest', 'talent_defiq']    # 決定過半場阻礙的防守屬性
+      # [Spec 3.4] 抄截判定 (Def - Off)
+      steal_off: ['off_dribble', 'off_pass', 'talent_offiq']     # 被抄截者的抵抗屬性
+      steal_def: ['def_disrupt', 'def_contest', 'talent_defiq']  # 抄截者的攻擊屬性
+
+    # [Spec v1.4 Section 3.5] 快攻判定
+    fastbreak:
+      params:
+        base_success_min: 0.3    # 快攻基礎成功率下限 (30%)
+        base_success_max: 1.0    # 快攻基礎成功率上限 (100%)
+        stat_diff_coeff: 0.005   # 成功率修正: (屬性差) * 0.5%
+        foul_base_prob: 0.01     # 快攻犯規基礎機率 (1%)
+        foul_iq_coeff: 0.01      # 犯規智商修正: (IQ差) * 1%
+
+      formulas:
+        runner_selection: ['ath_speed', 'off_dribble']   # 決定誰跑快攻 (跑最快者)
+        chaser_selection: ['ath_speed', 'talent_defiq']  # 決定誰追防 (追最快者)
+        
+        # [Spec 3.5.A] 快攻綜合能力 (9項 vs 9項)
+        off_power: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'off_move', 'off_dribble']
+        def_power: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_contest', 'def_disrupt']
+        
+        # [Spec 3.5.C] 犯規判定
+        foul_off_iq: ['talent_offiq'] # 進攻方 IQ
+        foul_def_iq: ['talent_defiq'] # 防守方 IQ
+
+  # === 前場階段 (Frontcourt Phase) [Spec v1.4 Section 4] ===
+  frontcourt:
+    params:
+      time_min_limit: 4.0        # 前場進攻時間下限 (最快4秒出手)
+      time_quality_base: 7.0     # 品質基準秒數 (低於7秒開始有命中加成)
+      spacing_bonus_coeff: 0.1   # 空間加成權重 (10%)
+    
+    formulas:
+      # [Spec 4.1] 時間下限修正 (團隊屬性)
+      time_reduction: ['ath_speed', 'talent_offiq', 'off_pass'] # 這些屬性越高，進攻時間下限越低
+      
+      # [Spec 4.2] 空間與跑位
+      spacing_off: ['off_move', 'talent_offiq'] # 進攻方製造空間的屬性
+      spacing_def: ['off_move', 'talent_defiq'] # 防守方壓縮空間的屬性
+
+    # [Spec v1.4 Section 4.3] 封蓋判定
+    block:
+      params:
+        base_prob: 0.01             # 基礎封蓋觸發率 (1%)
+        spacing_penalty_prob: 0.05  # 當空間擁擠(<0)時，額外增加的封蓋率 (5%)
+      formulas:
+        # 階段一: 觸發 (能否摸到球)
+        trigger_off: ['off_move']                    # 進攻跑位越高，越難被封蓋
+        trigger_def: ['def_contest', 'talent_defiq'] # 防守干擾越高，越容易觸發封蓋
+        # 階段二: 對抗 (Power Ratio - 硬碰硬)
+        power_off: ['ath_strength', 'ath_jump', 'talent_offiq']
+        power_def: ['ath_strength', 'ath_jump', 'def_contest', 'talent_defiq']
+
+    # [Spec v1.4 Section 4.4] 前場抄截
+    steal:
+      params:
+        base_prob: 0.01          # 基礎前場抄截率 (1%)
+        stat_diff_coeff: 0.001   # 機率加成係數 (0.1%)
+      formulas:
+        off_attr: ['off_dribble', 'off_handle', 'off_pass']      # 持球者的護球屬性
+        def_attr: ['ath_speed', 'def_disrupt', 'talent_defiq']   # 防守者的抄截屬性
+
+  # === 投籃與結算 (Shooting & Scoring) [Spec v1.4 Section 5] ===
+  shooting:
+    params:
+      base_rate: 0.40             # [Spec 5.1] 基礎命中率 (40%)
+      spacing_weight: 0.1         # 空間加成係數 (公式中的 * 0.1)
+      assist_prob_coeff: 0.1      # [Spec 5.5] 助攻機率係數 (公式中的 * 0.1)
+    
+    formulas:
+      # [Spec 5.1] 命中率總和 (引用 attr_pools)
+      off_total: 'off_13'         # 進攻方 13 項屬性總和
+      def_total: 'def_12'         # 防守方 12 項屬性總和
+      
+      # [Spec 5.2] 犯規判定 (IQ vs IQ)
+      foul_off_iq: ['talent_offiq']
+      foul_def_iq: ['talent_defiq']
+      
+      # [Spec 5.3] 三分球判定
+      range_attr: ['shot_range']  # 射程越高，三分球機率越高
+
+    # [Spec v1.4 Section 5.4] 籃板判定
+    rebound:
+      params:
+        def_base_rate: 0.10       # 防守籃板基礎優勢 (10%)
+      formulas:
+        off_attr: ['talent_offiq', 'def_rebound', 'def_boxout'] # 進攻籃板屬性
+        def_attr: ['talent_defiq', 'def_rebound', 'def_boxout'] # 防守籃板屬性
+
+    # [Spec v1.4 Section 5.2 & 5.3] 罰球
+    ft:
+      params:
+        base_min: 0.40            # 罰球基礎命中率下限
+        base_max: 0.95            # 罰球基礎命中率上限
+        attr_coeff: 0.0001        # 屬性修正係數 (100點屬性約 +1%)
+      formulas:
+        bonus_attrs: ['talent_luck', 'shot_touch'] # 罰球看運氣與手感
+
+    # [Spec v1.4 Section 5.5] 助攻
+    assist:
+      formulas:
+        team_stat: ['talent_offiq', 'off_handle', 'off_pass', 'off_move'] # 判定是否發生助攻的團隊屬性
+        luck_stat: ['talent_luck']                                         # 影響助攻係數的運氣屬性
+        distribution: ['off_handle', 'off_pass']                           # 用於決定是誰傳出助攻的權重
+
+  # === 數據歸屬權重 (Data Attribution) [Spec v1.4 Section 6] ===
+  attribution:
+    params:
+      shot_star_bonus: 1.5        # Star 球員出手權重加成 (1.5倍)
+      shot_starter_bonus: 1.2     # Starter 球員出手權重加成 (1.2倍)
+      rebound_height_weight: 1.5  # 身高/彈跳/籃板/卡位的加權倍率 (1.5倍)
+    
+    formulas:
+      # [Spec 6.1] 投籃歸屬 (引用 Off_Total, 額外加成由程式邏輯判斷 3分/2分)
+      shot_weight_base: 'off_13'  # 基礎出手權重看進攻總值
+      shot_3pt_bonus: ['shot_release', 'shot_range', 'off_move'] # 若是三分球回合，這些屬性權重加倍
+
+      # [Spec 6.3] 籃板歸屬
+      rebound_base: ['ath_strength', 'ath_speed', 'off_move']    # 基礎權重
+      rebound_bonus: ['ath_jump', 'def_rebound', 'def_boxout']   # 加權權重 (會乘上 height_weight)
+      rebound_iq_off: ['talent_offiq']                           # 進攻籃板額外看 IQ
+      rebound_iq_def: ['talent_defiq']                           # 防守籃板額外看 IQ
+
+      # [Spec 6.4] 助攻歸屬
+      assist_weight: ['off_handle', 'off_pass', 'talent_offiq']  # 誰最容易拿到助攻
+
+      # [Spec 6.5] 抄截歸屬
+      steal_weight: ['def_disrupt', 'talent_defiq', 'ath_speed', 'def_contest'] # 誰最容易拿到抄截

@@ -224,3 +224,5 @@ Desktop.ini
 # 未來可能產生的 Log 檔案或戰報
 logs/
 *.log
+docs/*
+tests/*
