@@ -1,8 +1,8 @@
 # ASBL Basketball Manager (ASBL)
 
-ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy Game)。玩家扮演球隊經理，在嚴格的薪資帽限制下，透過選秀、交易、培養與戰術調度，打造屬於自己的冠軍王朝。
+ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy Game)。玩家扮演球隊經理，在嚴格的薪資限制下，透過選秀、交易、培養與戰術調度，打造屬於自己的冠軍王朝。
 
-本專案採用 **Python 3.13 (Flask)** 作為後端框架，搭配 **MySQL 9.0** 資料庫進行開發。
+本專案採用 **Python 3.13 (Flask)** 作為後端框架，搭配 **MySQL 9.0** 資料庫進行開發，並引入 **Polars** 與 **Parquet** 進行大數據級別的數值平衡驗證。
 
 ---
 
@@ -77,6 +77,20 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ---
 
+## 🧪 大數據驗證架構 (Big Data Verification)
+
+為了確保遊戲數值平衡，我們建立了千萬級別的 ETL 測試管線。
+
+*   **技術核心**: Python Multiprocessing + Apache Parquet + Polars。
+*   **驗證規模**: 100,000,000 (一億) 筆球員資料生成驗收。
+*   **KPI 報告**: 自動化生成 Markdown 報告，詳見 `docs/KPI_Validation_Report_v2_6.md`。
+*   **驗證項目**:
+    *   常態分佈 (Normal Distribution) 檢核 (身高、體重)。
+    *   稀有度 (Rarity) 出現機率收斂檢核。
+    *   能力值邊界 (Stat Caps) 與重骰機制 (Reroll) 有效性。
+
+---
+
 ## 📅 開發時程 (Development Roadmap)
 
 ### Phase 1: 核心架構 (Foundation) - [已完成]
@@ -84,9 +98,11 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 *   [x] **球員生成引擎**: 實作 100 抽邏輯、G~SSR 分級演算法、屬性隨機生成。
 *   [x] **合約系統**: 實作角色定位、薪資計算與簽約邏輯。
 *   [x] **時間分配演算法**: 實作 `calculate_minutes(roster)` 函數。
+*   [x] **大數據驗證**: 完成 1 億筆球員生成測試與 KPI 驗收報告。
 
 ### Phase 2: 比賽與成長 (Game Loop) - [進行中]
 *   [x] **比賽引擎 (v1.4)**: 實作回合制判定、體力系統、數據歸屬機制。
+*   [ ] **比賽大數據測試**: 驗證比賽數據 (PTS/REB/AST) 的分佈平衡性。
 *   [ ] **成長系統**: 實作年齡檢查、點數計算 (成長/巔峰/退化公式)。
 *   [ ] **排程系統**: 每日自動結算比賽、更新球員年齡/合約天數。
 
@@ -101,6 +117,7 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 *   **Backend**: Python 3.13 (Flask)
 *   **Database**: MySQL 9.0
+*   **Data Analysis**: Polars, Pandas, Apache Parquet
 *   **Frontend**: HTML5, CSS3, Jinja2 Templates
 *   **ORM**: SQLAlchemy
 
@@ -115,12 +132,20 @@ ASBL-Basketball-Manager/
 │   ├── utils/               # Utilities (ConfigLoader...)
 │   └── templates/           # Jinja2 HTML
 ├── config/
-│   └── game_config.yaml     # [NEW] Centralized Game Configuration
+│   └── game_config.yaml     # Centralized Game Configuration
+├── docs/                    # Documentation & Reports
+│   ├── DEV_JOURNAL_BigData_Architecture.md
+│   └── KPI_Validation_Report_v2_6.md
 ├── scripts/                 # Automation Scripts
 │   ├── init_db.py           # Initialize Database
 │   ├── simulate_match.py    # Match Simulation Engine (v1.4)
-│   ├── simulate_team_creation.py # Team Generation Test
 │   └── terminal.py          # Terminal Utils
+├── tests/                   # Testing Suite
+│   └── big_data/            # [NEW] Big Data Verification ETL
+│       ├── verify_generator_integration.py # ETL Pipeline
+│       ├── verify_kpi_v2_6.py              # KPI Analyzer (Polars)
+│       ├── test_config.yaml                # Test Configuration
+│       └── output/                         # Parquet Files (Ignored by Git)
 ├── ASBL_Spec_v1.4.md        # Match Engine Specification
 ├── ASBL_Player_System_Specification.md # Player System Spec (v2.6)
 ├── config.py                # App Configuration
