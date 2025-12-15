@@ -222,3 +222,47 @@
 
 ### 🔜 下一步計畫
 - **比賽引擎重構**: 修改比賽引擎架構，將數據跟公式抽離，以利後續大數據測試與參數調整。
+
+--
+
+## 2025-12-16 04:50 ：比賽引擎核心架構與規則實作 (Match Engine Core & Spec v1.6)
+
+### ✅ 進度摘要
+正式完成了 **Level 4 比賽引擎 (Match Engine)** 的核心架構搭建。實作了 `MatchEngine` 主類別，包含比賽流程控制 (Flow Control)、賽前初始化 (Initialization) 以及與各子系統 (體力、換人、數據歸屬) 的整合。同時，根據 **Spec v1.6** 實作了開場跳球、節次球權輪替以及犯滿離場後的上場時間重分配邏輯。
+
+### 🛠️ 技術細節
+1.  **引擎架構建立 (`app/services/match_engine/`)**
+    - 確立了分層架構：
+        - **L4 Core**: `core.py` (主迴圈, 狀態機)。
+        - **L3 Systems**: `stamina.py`, `substitution.py`, `attribution.py` (獨立邏輯單元)。
+        - **L2 Utils**: `calculator.py` (公式計算), `rng.py` (隨機數)。
+        - **L1 Structures**: `structures.py` (資料結構)。
+    - 修正時間單位：統一將內部計算單位由「分鐘」改為「秒 (seconds)」，避免浮點數誤差。
+
+2.  **規則實作 (Spec v1.6)**
+    - **開場跳球 (Jump Ball)**: 
+        - 實作於 `core.py` 的 `_jump_ball` 方法。
+        - 邏輯改為 **Config Driven**，由設定檔定義參與屬性 (身高+彈跳+進攻IQ) 與權重。
+    - **球權輪替 (Possession)**:
+        - Q1: 跳球勝方。
+        - Q2/Q3: 跳球負方。
+        - Q4: 跳球勝方。
+    - **開場首回合例外**: 
+        - 在 Config 中新增 `opening_seconds: 2.0`，強制設定 Q1 首回合時間。
+    - **犯滿離場 (Foul Out)**:
+        - 實作 6 犯離場規則。
+        - **時間重分配 (Redistribution)**: 當球員離場時，將其剩餘時間平均分配給同位置評分前 3 名的隊友。
+
+3.  **設定檔更新 (`config/game_config.yaml`)**
+    - 新增 `jump_ball` 區塊：定義跳球公式。
+    - 新增 `backcourt.params.opening_seconds`：定義開場時間。
+    - 調整 `positional_scoring`：優化 SF 位置的評分權重。
+    - 新增 `substitution.redistribution`：定義時間重分配參數。
+
+### 📝 筆記
+- **資料驅動修正**: 修正了原先在 `core.py` 中寫死跳球公式的問題，現在完全依賴 Config，方便未來調整平衡。
+- **效能優化**: `RNG` 類別採用靜態方法綁定，減少大量隨機數生成時的 overhead。
+
+### 🔜 下一步計畫
+- **實作回合邏輯 (Step 3)**: 填充 `_simulate_possession` 方法，實作完整的 後場 -> 前場 -> 投籃/籃板 流程。
+- **整合 Play Logic**: 將 Spec v1.6 的詳細判定邏輯 (如快攻、封蓋、空間判定) 轉化為程式碼。

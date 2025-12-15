@@ -125,28 +125,44 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 
 ASBL-Basketball-Manager/
 ├── app/
-│   ├── __init__.py          # App Factory
-│   ├── models/              # SQLAlchemy Models
-│   ├── routes/              # Blueprints
-│   ├── services/            # Business Logic (Engine, Contract...)
-│   ├── utils/               # Utilities (ConfigLoader...)
-│   └── templates/           # Jinja2 HTML
+│   ├── __init__.py          # App Factory (應用程式工廠)
+│   ├── models/              # SQLAlchemy Models (資料庫模型)
+│   ├── routes/              # Blueprints (路由定義)
+│   ├── services/            # Business Logic (業務邏輯層)
+│   │   ├── match_engine/    # [NEW] 比賽引擎模組
+│   │   │   ├── __init__.py
+│   │   │   ├── service.py           # [入口] 負責初始化 Team, Player, 載入 Config
+│   │   │   ├── structures.py        # [L1] EnginePlayer, EngineTeam, MatchResult
+│   │   │   ├── core.py              # [L4] MatchEngine (主迴圈), PossessionFlow (回合流程)
+│   │   │   ├── utils/
+│   │   │   │   ├── calculator.py    # [L2] 處理 Config 公式的通用計算器
+│   │   │   │   └── rng.py           # [L2] 統一的隨機數生成器 (方便未來做 Seed 控制)
+│   │   │   └── systems/             # [L3] 各個子系統
+│   │   │       ├── __init__.py
+│   │   │       ├── stamina.py       # 體力系統
+│   │   │       ├── substitution.py  # 換人與犯規系統
+│   │   │       ├── attribution.py   # 數據歸屬系統
+│   │   │       └── play_logic.py    # 特殊玩法判定 (如快攻判定、空間判定邏輯)
+│   │   └── ... (其他服務如 Contract 等)
+│   ├── utils/               # Utilities (工具函式，如 ConfigLoader)
+│   └── templates/           # Jinja2 HTML (前端模板)
 ├── config/
-│   └── game_config.yaml     # Centralized Game Configuration
-├── docs/                    # Documentation & Reports
+│   └── game_config.yaml     # Centralized Game Configuration (遊戲核心設定檔)
+├── docs/                    # Documentation & Reports (文件與報告)
+│   ├── DEV_LOG.md           # 開發日誌
 │   ├── DEV_JOURNAL_BigData_Architecture.md
 │   └── KPI_Validation_Report_v2_6.md
-├── scripts/                 # Automation Scripts
-│   ├── init_db.py           # Initialize Database
-│   ├── simulate_match.py    # Match Simulation Engine (v1.4)
-│   └── terminal.py          # Terminal Utils
-├── tests/                   # Testing Suite
-│   └── big_data/            # [NEW] Big Data Verification ETL
+├── scripts/                 # Automation Scripts (自動化腳本)
+│   ├── init_db.py           # 資料庫初始化
+│   ├── simulate_match.py    # 比賽模擬腳本 (v1.4)
+│   └── terminal.py          # 終端機工具
+├── tests/                   # Testing Suite (測試套件)
+│   └── big_data/            # 大數據驗證 ETL
 │       ├── verify_generator_integration.py # ETL Pipeline
 │       ├── verify_kpi_v2_6.py              # KPI Analyzer (Polars)
-│       ├── test_config.yaml                # Test Configuration
-│       └── output/                         # Parquet Files (Ignored by Git)
-├── ASBL_Spec_v1.4.md        # Match Engine Specification
-├── ASBL_Player_System_Specification.md # Player System Spec (v2.6)
-├── config.py                # App Configuration
-└── run.py                   # Entry Point
+│       ├── test_config.yaml                # 測試專用設定
+│       └── output/                         # Parquet Files (Git 忽略)
+├── ASBL_Match_Engine_Specification.md # [Updated] 比賽引擎規格書 (v1.6)
+├── ASBL_Player_System_Specification.md # 球員系統規格書 (v2.6)
+├── config.py                # App Configuration (Flask 設定)
+└── run.py                   # Entry Point (程式入口)

@@ -2,7 +2,7 @@
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
 #   - Player System Specification v2.5
-#   - Match Engine Specification v1.4
+#   - Match Engine Specification v1.6
 # 路徑 config/game_config.yaml
 # =============================================================================
 
@@ -107,6 +107,17 @@ match_engine:
     quarter_length: 720            # 每節比賽秒數 (12分鐘)
     ot_length: 300                 # 延長賽秒數 (5分鐘)
     
+    # [Spec v1.5 New] 犯規與換人規則
+    substitution:
+      foul_limit: 6                # 犯滿離場次數
+      stamina_threshold: 80.0      # 低於此體力觸發換人
+      
+      # 犯滿離場後的時間重分配邏輯
+      redistribution:
+        method: "positional_top_k" # 邏輯名稱: 每個位置取前 K 名
+        top_k: 3                   # 取前 3 名
+        positions: ["C", "PF", "SF", "SG", "PG"] # 遍歷順序 (共 15 個 slot)
+    
     # [Spec v1.4 Section 2.1 - 2.3] 體力系統參數
     stamina_recovery_halftime: 20  # 中場休息回復體力值 (上限100)
     stamina_nerf_threshold: 80     # 體力低於此數值開始，能力值會線性衰退
@@ -118,12 +129,19 @@ match_engine:
     drain_attrs: ['ath_stamina', 'talent_health']   # 消耗公式: 3.0 * [1+(1-體能)] + (1-健康)
     recover_attrs: ['ath_stamina', 'talent_health'] # 恢復公式: 1.0 + 體能 - (1-健康)
 
+  # [Spec 1.6 Section 1.5] 開場跳球設定 (New)
+  jump_ball:
+    # 參與者篩選公式: 身高 + 彈跳 + 進攻智商
+    participant_formula: ['height', 'ath_jump', 'talent_offiq']
+    # 獲勝機率計算: 依據數值總和比例 (無額外隨機係數，純看數值佔比)
+    random_factor: 0.0 
+
   # [Spec v1.4 Section 1.1] 位置能力評分 (Positional Scoring)
   # 用途: 決定 Best 5 與 輪替順序，定義每個位置看重哪些屬性
   positional_scoring:
     C:  ['height', 'ath_strength', 'def_rebound', 'def_boxout', 'def_contest']
     PF: ['height', 'ath_strength', 'def_rebound', 'def_boxout', 'def_contest', 'ath_jump', 'ath_speed']
-    SF: ['ALL_STATS', 'height'] # 特殊關鍵字 ALL_STATS 代表所有屬性總和
+    SF: ['all_stats', 'height'] 
     SG: ['shot_touch', 'shot_release', 'talent_offiq', 'talent_defiq', 'def_contest', 'def_disrupt', 'shot_range']
     PG: ['ath_speed', 'talent_offiq', 'def_disrupt', 'off_dribble', 'off_pass', 'off_handle', '-height'] # 負號代表扣分
 
@@ -132,6 +150,12 @@ match_engine:
   attr_pools:
     off_13: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'shot_accuracy', 'shot_range', 'off_move', 'off_dribble', 'off_pass', 'off_handle']
     def_12: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 'off_move']
+    all_stats: [
+      'ath_stamina', 'ath_strength', 'ath_speed', 'ath_jump', 
+      'shot_touch', 'shot_release', 'talent_offiq', 'talent_defiq', 'talent_health', 'talent_luck',
+      'shot_accuracy', 'shot_range', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 
+      'off_move', 'off_dribble', 'off_pass', 'off_handle'
+    ]
 
   # === 後場階段 (Backcourt Phase) [Spec v1.4 Section 3] ===
   backcourt:
