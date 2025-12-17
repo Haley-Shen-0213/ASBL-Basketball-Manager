@@ -1,3 +1,4 @@
+# 路徑：docs/DEV_JOURNAL_BigData_Architecture.md
 # 專案開發日誌：ASBL 模擬引擎大數據測試架構設計
 **Project Journal: ASBL Simulation Engine - Big Data Testing Architecture Design**
 

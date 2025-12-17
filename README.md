@@ -101,8 +101,9 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 *   [x] **大數據驗證**: 完成 1 億筆球員生成測試與 KPI 驗收報告。
 
 ### Phase 2: 比賽與成長 (Game Loop) - [進行中]
-*   [x] **比賽引擎 (v1.4)**: 實作回合制判定、體力系統、數據歸屬機制。
-*   [ ] **比賽大數據測試**: 驗證比賽數據 (PTS/REB/AST) 的分佈平衡性。
+*   [x] **比賽引擎 (v1.6)**: 實作完整回合制判定、快攻、犯規、罰球與詳細數據紀錄。
+*   [x] **單場模擬測試**: 完成無 DB 依賴的快速模擬腳本驗證。
+*   [ ] **聯賽大數據測試**: 驗證賽季數據 (PTS/REB/AST) 的分佈平衡性。
 *   [ ] **成長系統**: 實作年齡檢查、點數計算 (成長/巔峰/退化公式)。
 *   [ ] **排程系統**: 每日自動結算比賽、更新球員年齡/合約天數。
 
@@ -124,44 +125,86 @@ ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy G
 ## 📂 目錄結構 (Directory Structure)
 
 ASBL-Basketball-Manager/
-├── app/
-│   ├── __init__.py          # App Factory (應用程式工廠)
-│   ├── models/              # SQLAlchemy Models (資料庫模型)
-│   ├── routes/              # Blueprints (路由定義)
-│   ├── services/            # Business Logic (業務邏輯層)
-│   │   ├── match_engine/    # [NEW] 比賽引擎模組
-│   │   │   ├── __init__.py
-│   │   │   ├── service.py           # [入口] 負責初始化 Team, Player, 載入 Config
-│   │   │   ├── structures.py        # [L1] EnginePlayer, EngineTeam, MatchResult
-│   │   │   ├── core.py              # [L4] MatchEngine (主迴圈), PossessionFlow (回合流程)
-│   │   │   ├── utils/
-│   │   │   │   ├── calculator.py    # [L2] 處理 Config 公式的通用計算器
-│   │   │   │   └── rng.py           # [L2] 統一的隨機數生成器 (方便未來做 Seed 控制)
-│   │   │   └── systems/             # [L3] 各個子系統
-│   │   │       ├── __init__.py
-│   │   │       ├── stamina.py       # 體力系統
-│   │   │       ├── substitution.py  # 換人與犯規系統
-│   │   │       ├── attribution.py   # 數據歸屬系統
-│   │   │       └── play_logic.py    # 特殊玩法判定 (如快攻判定、空間判定邏輯)
-│   │   └── ... (其他服務如 Contract 等)
-│   ├── utils/               # Utilities (工具函式，如 ConfigLoader)
-│   └── templates/           # Jinja2 HTML (前端模板)
-├── config/
-│   └── game_config.yaml     # Centralized Game Configuration (遊戲核心設定檔)
-├── docs/                    # Documentation & Reports (文件與報告)
-│   ├── DEV_LOG.md           # 開發日誌
-│   ├── DEV_JOURNAL_BigData_Architecture.md
-│   └── KPI_Validation_Report_v2_6.md
-├── scripts/                 # Automation Scripts (自動化腳本)
-│   ├── init_db.py           # 資料庫初始化
-│   ├── simulate_match.py    # 比賽模擬腳本 (v1.4)
-│   └── terminal.py          # 終端機工具
-├── tests/                   # Testing Suite (測試套件)
-│   └── big_data/            # 大數據驗證 ETL
-│       ├── verify_generator_integration.py # ETL Pipeline
-│       ├── verify_kpi_v2_6.py              # KPI Analyzer (Polars)
-│       ├── test_config.yaml                # 測試專用設定
-│       └── output/                         # Parquet Files (Git 忽略)
+├─ app/                                   # 核心應用程式目錄
+│  ├─ models/                             # [資料庫模型層] 定義 SQL Table 結構
+│  │  ├─ __init__.py                      # 匯出 User, Team, Player, Contract, NameLibrary 方便引用
+│  │  ├─ contract.py                      # (保留) 若合約邏輯過於複雜可獨立，目前定義在 player.py 內
+│  │  ├─ match.py                         # 定義比賽賽程 (Match) 與比賽數據紀錄 (MatchStats)
+│  │  ├─ player.py                        # 定義球員 (Player) 基本資料、JSON 詳細數據與合約 (Contract)
+│  │  ├─ system.py                        # 定義系統輔助資料表，如姓名庫 (NameLibrary)
+│  │  ├─ team.py                          # (保留) 若球隊邏輯複雜可獨立，目前定義在 user.py 內
+│  │  └─ user.py                          # 定義使用者 (User) 帳號驗證與球隊 (Team) 資金/聲望
+│  │
+│  ├─ routes/                             # [API 路由層] 處理 HTTP 請求
+│  │  ├─ __init__.py
+│  │  └─ auth.py                          # 認證 API: 處理註冊 (/register) 與登入 (/login)，並自動建立球隊
+│  │
+│  ├─ services/                           # [業務邏輯層] 處理複雜運算，不直接碰觸 HTTP
+│  │  ├─ match_engine/                    # >> 比賽模擬引擎 (Level 4 Simulation) <<
+│  │  │  ├─ systems/                      # [引擎子系統] 負責特定領域的邏輯判斷 (Config Driven)
+│  │  │  │  ├─ init.py
+│  │  │  │  ├─ attribution.py             # [歸屬判定系統] 決定誰投籃、誰抓籃板、誰助攻 (依據權重與屬性)
+│  │  │  │  ├─ play_logic.py              # (預留) 戰術邏輯
+│  │  │  │  ├─ stamina.py                 # [體力系統] 計算體力流失/回復，並動態更新屬性懲罰係數
+│  │  │  │  └─ substitution.py            # [換人系統] 執行自動換人、處理犯滿離場與時間重分配
+│  │  │  ├─ utils/                        # [引擎工具]
+│  │  │  │  ├─ init.py
+│  │  │  │  ├─ calculator.py              # [數值計算器] 處理屬性加總、遞迴解析 Config、命中率公式計算
+│  │  │  │  └─ rng.py                     # [隨機亂數] 極致效能優化的 RNG 類別 (綁定 random 底層函式)
+│  │  │  ├─ init.py
+│  │  │  ├─ core.py                       # 引擎核心: 控制比賽流程 (跳球 -> 節次 -> 回合 -> 結算)
+│  │  │  ├─ service.py                    # 橋接服務: 負責 DB 資料 <-> Engine 物件轉換
+│  │  │  └─ structures.py                 # [引擎專用結構] EnginePlayer/EngineTeam (使用 slots 優化效能)
+│  │  │
+│  │  ├─ init.py
+│  │  ├─ player_generator.py              # 球員生成器: 產生符合常態分佈的身高、位置、SSR~G 級能力值
+│  │  └─ team_creator.py                  # 球隊組建器: 呼叫生成器湊滿 15 人，並檢核陣容完整性 (如至少2個PG)
+│  ├─ templates/                          # (目前無內容)
+│  ├─ utils/
+│  │  └─ game_config_loader.py            # [設定載入器] Singleton 模式讀取 YAML，支援環境變數路徑
+│  └─ __init__.py
+│
+├─ config/
+│  └─ game_config.yaml                    # [遊戲平衡檔] 定義所有機率、權重、薪資公式 (Spec v2.5 & v1.6)
+│
+├─ docs/                                  # [專案文件]
+│  ├─ DEV_JOURNAL_BigData_Architecture.md # [架構日誌] 記錄從單機到 ETL Pipeline 的演進
+│  └─  KPI_Validation_Report_v2_6.md       # [驗收報告] 1億筆資料生成的統計結果 (極端值、分佈檢核)
+├─ scripts/
+│  ├─ utils/
+│  │  └─ tree.py # 專案檔案樹產生器
+│  ├─ __init__.py
+│  ├─ init_db.py # 舊檔案
+│  ├─ simulate_match_no_db.py # 測試建立兩支球隊並且執行比賽
+│  ├─ terminal.py # 清空終端顯示
+│  └─ test_auth.py # 舊檔案
+├─ tests/
+│  ├─ big_data/                           # >> 大數據驗證架構 (ETL Pipeline) <<
+│  │  ├─ output/                          # [資料輸出] (自動建立) 存放生成的 .parquet 檔案
+│  │  │  ├─ dry_run/                      # 試跑產生的暫存檔
+│  │  │  └─ run_v2_6_dataset_*/           # 正式測試產生的分片資料集
+│  │  │
+│  │  ├─ logs/                            # [執行紀錄] (自動建立) 存放 execution_history.log
+│  │  │
+│  │  ├─ __init__.py
+│  │  ├─ test_config.yaml                 # [測試配置] 設定 Worker 數量、Batch Size、輸出路徑
+│  │  │
+│  │  ├─ verify_generator_integration.py  # [生產者 (Producer)] **主執行腳本**
+│  │  │                                   # 1. 負責啟動 Multiprocessing Pool
+│  │  │                                   # 2. 呼叫 PlayerGenerator 生成數據
+│  │  │                                   # 3. 將數據寫入 Parquet 檔案 (ETL)
+│  │  │
+│  │  ├─ verify_kpi_v2_6.py               # [驗證者 (Validator)] **KPI 驗收腳本**
+│  │  │                                   # 1. 使用 Polars 高速讀取 Parquet
+│  │  │                                   # 2. 執行統計分析 (身高分佈、等級機率、極端值)
+│  │  │                                   # 3. 輸出 Markdown 報告與 Log
+│  │  │
+│  │  ├─ analyze_data.py                  # [檢視器 (Viewer)]
+│  │  │                                   # 使用 Pandas 快速預覽 dry_run.parquet 的內容與欄位
+│  │  │
+│  │  └─ check_crash_data.py              # [災難恢復 (Recovery)]
+│  │                                      # 若測試中斷，此腳本可掃描 output 目錄，檢查哪些 Parquet 檔是完好的
+│  └─ __init__.py
 ├── ASBL_Match_Engine_Specification.md # [Updated] 比賽引擎規格書 (v1.6)
 ├── ASBL_Player_System_Specification.md # 球員系統規格書 (v2.6)
 ├── config.py                # App Configuration (Flask 設定)

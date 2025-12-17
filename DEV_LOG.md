@@ -266,3 +266,40 @@
 ### 🔜 下一步計畫
 - **實作回合邏輯 (Step 3)**: 填充 `_simulate_possession` 方法，實作完整的 後場 -> 前場 -> 投籃/籃板 流程。
 - **整合 Play Logic**: 將 Spec v1.6 的詳細判定邏輯 (如快攻、封蓋、空間判定) 轉化為程式碼。
+
+--
+
+## 2025-12-18 04:30 ：比賽引擎邏輯完備與關鍵 Bug 修復 (Match Engine Logic & Bug Fix)
+
+### ✅ 進度摘要
+本次更新解決了阻礙比賽模擬的關鍵技術問題，並完成了 **Match Engine (v1.6)** 的所有核心回合邏輯。修復了設定檔解析錯誤導致的「屬性為零」Bug，使投籃命中率與攻防數據回歸正常。同時，重構了數據歸屬系統 (`AttributionSystem`) 以對齊核心引擎的呼叫介面，並新增了無資料庫依賴的模擬腳本 (`simulate_match_no_db.py`) 以加速開發測試。
+
+### 🛠️ 技術細節
+
+1.  **核心修復 (`app/services/match_engine/core.py`)**
+    - **Config 解析修復 (`_resolve_formula`)**: 
+        - 問題：原先程式碼無法識別 Config 中以字串形式 (如 `'off_13'`) 參照的屬性池，導致 `Calculator` 接收到字串而非屬性列表，計算結果為 0。
+        - 解決：新增 `_resolve_formula` 方法，自動判斷並將字串引用轉換為實際的屬性列表。
+    - **全流程實作**: 
+        - 完成 `_simulate_possession` 內部的完整狀態機：`Backcourt` (後場) -> `Frontcourt` (前場) -> `Shooting` (投籃)。
+        - 實作了 **快攻 (Fastbreak)**、**阻攻 (Block)**、**抄截 (Steal)** 與 **犯規 (Foul)** 的詳細判定邏輯。
+    - **公式應用**: 將 Spec v1.6 定義的命中率公式、空間加成 (Spacing) 與出手品質 (Quality) 完整轉化為程式碼。
+
+2.  **系統重構 (`app/services/match_engine/systems/attribution.py`)**
+    - **介面統一**: 調整方法簽章 (Signature) 以配合 `core.py` 的呼叫需求。
+    - **邏輯修正**:
+        - `record_block`: 現在接收 `(blocker, shooter)`，並正確記錄射手被蓋火鍋時的 `FGA` (出手數)。
+        - `record_assist`: 新增獨立的助攻記錄方法。
+        - 方法更名：`record_shot_attempt` -> `record_attempt`，`determine_assister` -> `determine_assist_provider`。
+
+3.  **測試工具 (`scripts/simulate_match_no_db.py`)**
+    - 新增獨立模擬腳本，透過 Mock `PlayerGenerator` 與 Adapter 模式，在不連接 MySQL 的情況下直接生成兩支球隊進行對戰。
+    - 輸出詳細的 **Play-by-Play (PBP)** 日誌與 **Box Score**，用於驗證數值平衡。
+
+### 📝 筆記
+- **模擬結果驗證**: 經過修復後，模擬比賽比分 (如 103:113) 與命中率 (30%~60%) 皆符合現代籃球常態，SSR 球員表現顯著優於普通球員，證實數值模型有效。
+- **架構優化**: 透過 Adapter 隔離了 DB Model 與 Engine Model，未來更換資料庫或調整存儲結構時，引擎核心無需修改。
+
+### 🔜 下一步計畫
+- **大數據平衡測試**: 使用 `simulate_league.py` 進行 20 隊 x 6 循環的賽季模擬，檢視勝率分佈與極端值。
+- **前端串接**: 將比賽結果 (JSON) 傳遞給前端介面進行視覺化顯示。

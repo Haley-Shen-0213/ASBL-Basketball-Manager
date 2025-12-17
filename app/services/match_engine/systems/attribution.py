@@ -8,6 +8,13 @@ class AttributionSystem:
     """
     數據歸屬系統 (Level 3) - Config Driven
     對應 Spec v1.5 Section 6
+    
+    [Fix Log]
+    - Aligned method signatures with MatchEngine core calls.
+    - record_block now accepts (blocker, shooter).
+    - Renamed record_shot_attempt -> record_attempt.
+    - Renamed determine_assister -> determine_assist_provider.
+    - Added record_assist method.
     """
 
     @staticmethod
@@ -21,7 +28,6 @@ class AttributionSystem:
     def _get_attrs_from_config(config: Dict, key: str) -> List[str]:
         """
         Helper: 解析 Config 中的屬性列表引用
-        例如: "off_13" -> 查 attr_pools -> 回傳 list
         """
         me_config = config.get('match_engine', {})
         attr_pools = me_config.get('attr_pools', {})
@@ -111,11 +117,7 @@ class AttributionSystem:
             w = sum(AttributionSystem._get_val(p, a) for a in base_attrs)
             
             # 加權屬性 (包含身高)
-            # Spec: 身高(*1.5) + 彈跳(*1.5) ...
-            # 這裡假設 bonus_attrs 裡的屬性都需要乘上 height_weight
             w += sum(AttributionSystem._get_val(p, a) for a in bonus_attrs) * height_weight
-            
-            # 身高單獨處理 (因為它在 attributes 裡可能沒有，是基本資料)
             w += AttributionSystem._get_val(p, 'height') * height_weight
 
             # 智商屬性
@@ -140,9 +142,9 @@ class AttributionSystem:
         return weights[-1][0]
 
     @staticmethod
-    def determine_assister(off_team: EngineTeam, shooter: EnginePlayer, config: Dict) -> Optional[EnginePlayer]:
+    def determine_assist_provider(off_team: EngineTeam, shooter: EnginePlayer, config: Dict) -> Optional[EnginePlayer]:
         """
-        [Spec 6.4] 決定助攻者
+        [Spec 6.4] 決定助攻者 (原名 determine_assister)
         """
         candidates = [p for p in off_team.on_court if p.id != shooter.id]
         if not candidates: return None
@@ -159,11 +161,7 @@ class AttributionSystem:
             total_weight += w
         
         # 判定順序: C -> PF -> SF -> SG -> PG
-        # 這裡我們使用 Config 中的 substitution.redistribution.positions 作為參考順序
-        # 因為通常這就是標準的位置順序
         pos_order_list = config.get('match_engine', {}).get('general', {}).get('substitution', {}).get('redistribution', {}).get('positions', ["C", "PF", "SF", "SG", "PG"])
-        
-        # 建立 lookup table: {'C': 0, 'PF': 1...}
         pos_order_map = {pos: idx for idx, pos in enumerate(pos_order_list)}
         
         weights.sort(key=lambda x: pos_order_map.get(x[0].position, -1))
@@ -202,56 +200,79 @@ class AttributionSystem:
             upto += w
         return candidates[-1]
 
-    # ... (Record 方法與之前相同，略過不變的部分) ...
-    # 為了完整性，以下保留 Helper 方法
-    
+    # =========================================================================
+    # Recording Methods (Aligned with MatchEngine Core)
+    # =========================================================================
+
     @staticmethod
     def get_position_matchup(target_player: EnginePlayer, opponent_team: EngineTeam) -> EnginePlayer:
+        """Helper: 尋找對位球員"""
         target_pos = target_player.position
         for p in opponent_team.on_court:
             if p.position == target_pos: return p
         return opponent_team.on_court[0]
 
     @staticmethod
-    def record_shot_attempt(player: EnginePlayer, is_3pt: bool):
+    def record_attempt(player: EnginePlayer, is_3pt: bool):
+        """記錄出手 (原名 record_shot_attempt)"""
         player.stat_fga += 1
         if is_3pt: player.stat_3pa += 1
 
     @staticmethod
     def record_score(team: EngineTeam, scorer: EnginePlayer, points: int, is_3pt: bool, assister: Optional[EnginePlayer] = None):
+        """記錄得分"""
         team.score += points
         scorer.stat_pts += points
         scorer.stat_fgm += 1
         if is_3pt: scorer.stat_3pm += 1
-        if assister: assister.stat_ast += 1
+        # 若有傳入 assister，直接在此記錄，或者由 core 呼叫 record_assist
+        if assister: 
+            assister.stat_ast += 1
+
+    @staticmethod
+    def record_assist(passer: EnginePlayer):
+        """[New] 記錄助攻 (Core 獨立呼叫)"""
+        passer.stat_ast += 1
 
     @staticmethod
     def record_rebound(player: EnginePlayer, is_offensive: bool):
+        """記錄籃板"""
         player.stat_reb += 1
         if is_offensive: player.stat_orb += 1
         else: player.stat_drb += 1
 
     @staticmethod
     def record_steal(stealer: EnginePlayer, victim_team: EngineTeam):
+        """記錄抄截"""
         stealer.stat_stl += 1
+        # 尋找受害者記錄失誤
         victim = AttributionSystem.get_position_matchup(stealer, victim_team)
         victim.stat_tov += 1
 
     @staticmethod
-    def record_block(shooter: EnginePlayer, def_team: EngineTeam):
-        blocker = AttributionSystem.get_position_matchup(shooter, def_team)
+    def record_block(blocker: EnginePlayer, shooter: EnginePlayer):
+        """
+        記錄封阻 [Fix: 接收 (blocker, shooter)]
+        """
         blocker.stat_blk += 1
+        # 籃球規則: 被蓋火鍋算一次出手 (FGA)
+        # 由於 Core 在封蓋後直接返回 'turnover'，不會進入投籃結算，
+        # 因此必須在這裡補上記錄 FGA。
+        shooter.stat_fga += 1
 
     @staticmethod
     def record_team_turnover(team: EngineTeam):
+        """記錄團隊失誤 (如 8秒違例)"""
         if hasattr(team, 'stat_tov'): team.stat_tov += 1
 
     @staticmethod
     def record_foul(player: EnginePlayer):
+        """記錄犯規"""
         player.fouls += 1
 
     @staticmethod
     def record_free_throw(player: EnginePlayer, made: bool):
+        """記錄罰球"""
         player.stat_fta += 1
         if made:
             player.stat_ftm += 1
