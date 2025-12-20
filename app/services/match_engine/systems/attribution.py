@@ -220,12 +220,27 @@ class AttributionSystem:
 
     @staticmethod
     def record_score(team: EngineTeam, scorer: EnginePlayer, points: int, is_3pt: bool, assister: Optional[EnginePlayer] = None):
-        """記錄得分"""
+        """
+        記錄得分 (進球)
+        [Critical Fix] 進球必須同時增加 FGA 與 FGM
+        """
+        # 1. 團隊得分
         team.score += points
+        
+        # 2. 個人得分
         scorer.stat_pts += points
+        
+        # 3. 命中數
         scorer.stat_fgm += 1
-        if is_3pt: scorer.stat_3pm += 1
-        # 若有傳入 assister，直接在此記錄，或者由 core 呼叫 record_assist
+        if is_3pt: 
+            scorer.stat_3pm += 1
+        
+        # 4. [Fix] 出手數 (進球也算一次出手)
+        scorer.stat_fga += 1
+        if is_3pt:
+            scorer.stat_3pa += 1
+
+        # 5. 助攻
         if assister: 
             assister.stat_ast += 1
 

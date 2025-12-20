@@ -797,7 +797,13 @@ class MatchEngine:
 
     def _run_shooting(self, off_team: EngineTeam, def_team: EngineTeam, context: Dict) -> Tuple[str, bool]:
         """
-        [Spec 5] 投籃與結算邏輯
+        [Spec 5] 投籃與結算邏輯 (v1.8 Updated)
+        流程: 
+            1. 判定 2分/3分 (Spec 5.1) -> 決定 Base Rate
+            2. 決定出手者 (Spec 6.1)
+            3. 計算命中率 (Spec 5.2)
+            4. 判定犯規 (Spec 5.3)
+            5. 結算結果
         Returns: (log_description, keep_possession)
         """
         sht_config = self.config.get('match_engine', {}).get('shooting', {})
@@ -805,7 +811,11 @@ class MatchEngine:
         formulas = sht_config.get('formulas', {})
         attr_pools = self.config.get('match_engine', {}).get('attr_pools', {})
 
-        # --- 5.3 得分分數判定 (Score Value) ---
+        # =========================================================================
+        # Step 1: [Spec 5.1] 投籃類型判定 (Shot Type Determination)
+        # =========================================================================
+        # 邏輯: 先看團隊射程決定這球是 3分還是 2分
+        
         # [Fix] 解析公式
         range_attr_formula = self._resolve_formula(formulas.get('range_attr', []), attr_pools)
 
@@ -817,26 +827,42 @@ class MatchEngine:
         threshold = 1.0 / (team_range / range_divisor)
         rand_val = rng.get_float(0.0, 1.0)
         
+        # 判定是否為三分球
         is_3pt = (rand_val > threshold)
         points_attempt = 3 if is_3pt else 2
-        
         context['is_3pt'] = is_3pt # Update context for attribution
 
-        # [Spec 6.1] 決定出手者
+        # [V1.8 Critical] 根據類型選擇基礎命中率
+        if is_3pt:
+            base_rate = params.get('base_rate_3pt', 0.20) # 三分球基礎 20%
+        else:
+            base_rate = params.get('base_rate_2pt', 0.40) # 兩分球基礎 40%
+
+        # =========================================================================
+        # Step 2: [Spec 6.1] 決定出手者 (Data Attribution)
+        # =========================================================================
+        # 根據是否為 3分球，AttributionSystem 會套用不同的權重 (例如 3分球看重 shot_range)
         shooter = AttributionSystem.determine_shooter(off_team, is_3pt, self.config)
 
-        # --- 5.1 命中率判定 (Hit Rate) ---
+        # =========================================================================
+        # Step 3: [Spec 5.2] 命中率判定 (Hit Rate Calculation)
+        # =========================================================================
+        # Formula: (Base_Rate + (Off - Def)/Def) * (1 + Spacing*0.1) * (1 + Quality)
+        
         # [Fix] 解析公式
         off_total_formula = self._resolve_formula(formulas.get('off_total', []), attr_pools)
         def_total_formula = self._resolve_formula(formulas.get('def_total', []), attr_pools)
 
-        # Formula: (40% + (Off - Def)/Def) * (1 + Spacing*0.1) * (1 + Quality)
+        # 計算雙方對抗值 (Off: Shooter 個人數值, Def: 對手團隊數值)
+        # 注意: 雖然 Spec 5.1.A 寫 "進攻方總和"，但通常命中率是看 "出手者 vs 防守團隊"
+        # 若 Spec 意指 "進攻團隊總和"，則改用 get_team_attr_sum。
+        # 這裡依據慣例使用 Shooter 個人數值 (因為是他在投籃)
         off_total = Calculator.get_team_attr_sum(off_team.on_court, off_total_formula, attr_pools)
         def_total = Calculator.get_team_attr_sum(def_team.on_court, def_total_formula, attr_pools)
         
         if def_total == 0: def_total = 1
         
-        base_rate = params.get('base_rate', 0.40)
+        # 核心公式
         stat_diff = (off_total - def_total) / def_total
         
         spacing_weight = params.get('spacing_weight', 0.1)
@@ -844,31 +870,37 @@ class MatchEngine:
         
         quality_mod = 1.0 + context.get('quality', 0.0)
         
+        # 最終命中率
         hit_rate = (base_rate + stat_diff) * spacing_mod * quality_mod
         
         # 執行命中判定
         roll = rng.get_float(0.0, 1.0)
         is_hit = (roll <= hit_rate)
         
-        # [DEBUG]
-        shot_type = "3分" if is_3pt else "2分"
+        # [DEBUG Log]
+        shot_type_str = "3分" if is_3pt else "2分"
         self.pbp_logs.append(
-            f"   [CALC] {shooter.name} {shot_type}: Off({off_total:.0f}) vs Def({def_total:.0f}) | "
-            f"Base({base_rate:.2f}) + Diff({stat_diff:.2f}) + Spc({spacing_mod:.2f}) + Qual({quality_mod:.2f}) "
-            f"= Rate({hit_rate:.2%}) | Roll({roll:.3f}) -> {'命中' if is_hit else '不進'}"
+            f"   [CALC] {shooter.name} {shot_type_str}: Base({base_rate:.2f}) + Diff({stat_diff:.2f}) "
+            f"* Spc({spacing_mod:.2f}) * Qual({quality_mod:.2f}) = Rate({hit_rate:.2%}) | Roll({roll:.3f})"
         )
 
-        # --- 5.2 犯規判定 (Foul Check) ---
+        # =========================================================================
+        # Step 4: [Spec 5.3] 犯規判定 (Foul Check)
+        # =========================================================================
+        # Formula: (Off_IQ - Def_IQ) / Def_IQ
+        
         # [Fix] 解析公式
         foul_off_iq_formula = self._resolve_formula(formulas.get('foul_off_iq', []), attr_pools)
         foul_def_iq_formula = self._resolve_formula(formulas.get('foul_def_iq', []), attr_pools)
 
-        # Formula: (Off_IQ - Def_IQ) / Def_IQ
         off_iq = Calculator.get_team_attr_sum(off_team.on_court, foul_off_iq_formula, attr_pools)
         def_iq = Calculator.get_team_attr_sum(def_team.on_court, foul_def_iq_formula, attr_pools)
         
         if def_iq == 0: def_iq = 1
         foul_rate = (off_iq - def_iq) / def_iq
+        
+        # 保底犯規率 (避免負值或過低)
+        foul_rate = max(0.01, foul_rate)
         
         is_foul = rng.decision(foul_rate)
         foul_desc = ""
@@ -879,19 +911,18 @@ class MatchEngine:
             AttributionSystem.record_foul(fouler)
             foul_desc = f" ({fouler.name} 犯規)"
 
-        # --- 結算流程 ---
+        # =========================================================================
+        # Step 5: 結算流程 (Resolution)
+        # =========================================================================
         log_desc = ""
         keep_possession = False
 
         if is_hit:
-            # [進球]
+            # --- 進球 ---
             AttributionSystem.record_score(off_team, shooter, points_attempt, is_3pt)
             log_desc = f"{off_team.name} {shooter.name} {points_attempt}分命中{foul_desc}"
             
             # [Spec 5.5] 助攻判定
-            # Spec: (Team_Stat / 助攻係數) * 0.01
-            # Spec: 助攻係數 = 1 / Luck_Sum
-            # Formula Derivation: Team / (1/Luck) * 0.01 = Team * Luck * 0.01
             ast_config = sht_config.get('assist', {})
             ast_formulas = ast_config.get('formulas', {})
             
@@ -903,10 +934,9 @@ class MatchEngine:
             luck_stat = Calculator.get_team_attr_sum(off_team.on_court, luck_stat_formula, attr_pools)
             
             if luck_stat == 0: luck_stat = 1
-            assist_coeff = 1.0 / luck_stat # Spec: 助攻係數 = 1 / Luck Sum
+            assist_coeff = 1.0 / luck_stat 
             
-            # Implementation: (Team / Coeff) * Config_Value
-            # This mathematically results in Team * Luck * Config_Value
+            # 助攻機率 = Team * Luck * Coeff
             ast_prob = (team_stat / assist_coeff) * params.get('assist_prob_coeff', 0.1)
             
             if rng.decision(ast_prob):
@@ -915,14 +945,14 @@ class MatchEngine:
                     AttributionSystem.record_assist(passer)
                     log_desc += f" (助攻: {passer.name})"
             
-            # [And-1]
+            # [And-1 判定]
             if is_foul:
                 ft_made = self._run_free_throw(shooter, 1)
                 log_desc += " [And-1]"
                 if ft_made: log_desc += " 加罰命中"
                 
         else:
-            # [不進]
+            # --- 不進 ---
             AttributionSystem.record_attempt(shooter, is_3pt)
             log_desc = f"{off_team.name} {shooter.name} {points_attempt}分不進{foul_desc}"
             
@@ -951,15 +981,13 @@ class MatchEngine:
                 dr_prob = reb_params.get('def_base_rate', 0.10) + (def_reb_attr / total_reb)
                 
                 if rng.decision(dr_prob):
-                    # 防守籃板 (Fix: 參數修正)
-                    # is_defensive=True, is_offensive=False
-                    rebounder = AttributionSystem.determine_rebounder(def_team, off_team, True, self.config)
+                    # 防守籃板
+                    rebounder = AttributionSystem.determine_rebounder(off_team, def_team, True, self.config)
                     AttributionSystem.record_rebound(rebounder, False)
                     log_desc += f" (籃板: {def_team.name} {rebounder.name})"
                     keep_possession = False
                 else:
-                    # 進攻籃板 (Fix: 參數修正)
-                    # is_defensive=False, is_offensive=True
+                    # 進攻籃板
                     rebounder = AttributionSystem.determine_rebounder(off_team, def_team, False, self.config)
                     AttributionSystem.record_rebound(rebounder, True)
                     log_desc += f" (進攻籃板: {off_team.name} {rebounder.name})"

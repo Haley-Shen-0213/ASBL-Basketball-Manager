@@ -30,7 +30,7 @@ class SubstitutionSystem:
                 reason = "體力低"
             
             # 條件 2: 時間已到 (容許 1 分鐘緩衝)
-            elif (player.minutes_played > player.target_minutes + 1.0):
+            elif (player.seconds_played > player.target_seconds + 60.0):
                 reason = "時間到"
 
             if reason:
@@ -53,21 +53,21 @@ class SubstitutionSystem:
         fouled_player.is_fouled_out = True
         
         # 計算剩餘時間 [Fix] 使用 seconds
-        remaining_minutes = max(0.0, fouled_player.target_minutes - fouled_player.seconds_played)
-        fouled_player.target_minutes = fouled_player.seconds_played # 鎖定目標為當前已打時間
+        remaining_seconds = max(0.0, fouled_player.target_seconds - fouled_player.seconds_played)
+        fouled_player.target_seconds = fouled_player.seconds_played 
         
         # 時間重分配
-        if remaining_minutes > 0:
+        if remaining_seconds > 0:
             # 讀取重分配設定
             redis_config = config.get('match_engine', {}).get('general', {}).get('substitution', {}).get('redistribution', {})
-            SubstitutionSystem._redistribute_minutes(team, remaining_minutes, redis_config)
+            SubstitutionSystem._redistribute_minutes(team, remaining_seconds, redis_config)
 
         # 強制換人
         p_in = SubstitutionSystem._pick_best_available(team, fouled_player.position)
         
         if p_in:
             SubstitutionSystem.execute_sub(team, fouled_player, p_in)
-            return f"{fouled_player.name} 犯滿離場(剩餘{remaining_minutes:.1f}分已分配)，由 {p_in.name} 接替"
+            return f"{fouled_player.name} 犯滿離場(剩餘{remaining_seconds:.1f}分已分配)，由 {p_in.name} 接替"
         else:
             return f"{fouled_player.name} 犯滿離場，板凳無可用之兵！"
 
@@ -113,7 +113,7 @@ class SubstitutionSystem:
             p for p in team.bench 
             if not p.is_fouled_out 
             and p.current_stamina > current_stamina_threshold
-            and p.minutes_played < p.target_minutes
+            and p.seconds_played < p.target_seconds
         ]
         if not candidates: return None
         candidates.sort(key=lambda p: p.pos_scores.get(target_position, 0), reverse=True)

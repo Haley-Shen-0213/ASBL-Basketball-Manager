@@ -2,7 +2,7 @@
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
 #   - Player System Specification v2.5
-#   - Match Engine Specification v1.6
+#   - Match Engine Specification v1.7 (2025/12/20 Update for 3pt base rate)
 # 路徑 config/game_config.yaml
 # =============================================================================
 
@@ -238,7 +238,8 @@ match_engine:
   # === 投籃與結算 (Shooting & Scoring) [Spec v1.4 Section 5] ===
   shooting:
     params:
-      base_rate: 0.40             # [Spec 5.1] 基礎命中率 (40%)
+      base_rate_2pt: 0.40         # [Spec 5.1] 兩分球基礎命中率 (40%) - v1.7
+      base_rate_3pt: 0.20         # [Spec 5.1] 三分球基礎命中率 (20%) - v1.7
       spacing_weight: 0.1         # 空間加成係數 (公式中的 * 0.1)
       assist_prob_coeff: 0.1      # [Spec 5.5] 助攻機率係數 (公式中的 * 0.1)
     

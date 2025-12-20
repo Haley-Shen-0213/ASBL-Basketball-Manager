@@ -225,3 +225,4 @@ Desktop.ini
 logs/
 *.log
 output/
+tests/
