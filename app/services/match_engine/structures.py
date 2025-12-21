@@ -1,185 +1,160 @@
 # app/services/match_engine/structures.py
 
-from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any
 
+# [Optimization] 使用 slots=True
+# 原理：Python 預設使用 __dict__ 字典儲存物件屬性，這會消耗大量記憶體。
+# slots=True 告訴直譯器預先分配固定的記憶體空間給這些屬性。
+# 效益：記憶體佔用減少約 40-50%，屬性存取速度提升約 20%。
+# 對於 1 億場模擬 (涉及數十億次屬性讀取) 至關重要。
+
+@dataclass(slots=True)
 class EnginePlayer:
     """
-    比賽引擎專用的球員資料結構。
-    使用 __slots__ 優化記憶體與存取速度。
-    包含: 靜態屬性(能力值) + 動態狀態(體力/犯規) + 數據統計(得分/籃板)
-    修正: 統一時間單位為 '秒 (seconds)'，避免分鐘與秒混淆。
+    比賽引擎專用球員物件 (Level 4 - Phase 2 Ready)
+    包含基本資訊、能力屬性、以及完整的比賽統計數據。
     """
-    __slots__ = (
-        # === Identity (身分) ===
-        'id', 'name', 'position', 'height', 'role',
-        
-        # === Untrainable Stats (天賦 - Spec v2.6) ===
-        'ath_stamina', 'ath_strength', 'ath_speed', 'ath_jump',
-        'shot_touch', 'shot_release',
-        'talent_offiq', 'talent_defiq', 'talent_health', 'talent_luck',
-        
-        # === Trainable Stats (技術 - Spec v2.6) ===
-        'shot_accuracy', 'shot_range',
-        'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt',
-        'off_move', 'off_dribble', 'off_pass', 'off_handle',
-        
-        # === Dynamic State (比賽動態狀態) ===
-        'current_stamina',   # 當前體力值 (0.0 - 100.0)
-        'stamina_coeff',     # 體力修正係數 (0.21 - 1.0)，由 StaminaSystem 更新
-        'fouls',             # 犯規次數
-        'is_fouled_out',     # 是否犯滿離場
-        'seconds_played',    # [Fix] 上場時間 (秒)，原 minutes_played
-        'target_seconds',    # 目標上場時間 (秒) - 用於換人邏輯
-        'pos_scores',        # [New] 五個位置的適性評分 Cache (Dict[str, float]) - Spec 1.1
-        
-        # === Match Stats (單場數據統計) ===
-        'stat_pts', 'stat_reb', 'stat_ast', 'stat_stl', 'stat_blk', 'stat_tov',
-        'stat_fga', 'stat_fgm', 'stat_3pa', 'stat_3pm',
-        'stat_fta', 'stat_ftm', 'stat_orb', 'stat_drb'
-    )
+    # --- 1. 識別與基本資訊 ---
+    id: str
+    name: str
+    position: str  # 當前場上位置 (PG, SG, SF, PF, C)
+    role: str      # 合約角色 (Star, Starter, etc.) - 用於計算上場時間權重
+    grade: str     # 等級 (SSR, S, etc.) - 用於 Phase 2 數據分析
+    height: float  # 身高 (cm)
+    
+    # --- 2. 體力系統 (Spec 2) ---
+    current_stamina: float = 100.0
+    stamina_coeff: float = 1.0  # 當前能力修正係數 (體力低於 80 開始衰退)
+    
+    # --- 3. 上場時間管理 (Spec 1.4 & 2.6) ---
+    target_seconds: float = 0.0 # 目標上場秒數 (由 Minutes Distribution 計算)
+    seconds_played: float = 0.0 # 已上場秒數
+    is_fouled_out: bool = False # 是否犯滿離場
+    
+    # --- 4. 屬性緩存 (Spec 2.3) ---
+    # 為了效能，我們將 DB 中的巢狀結構 (physical.strength) 展平為單層屬性。
+    
+    # 不可訓練屬性 (Untrainable)
+    ath_stamina: float = 0.0
+    ath_strength: float = 0.0
+    ath_speed: float = 0.0
+    ath_jump: float = 0.0
+    talent_health: float = 0.0
+    shot_touch: float = 0.0
+    shot_release: float = 0.0
+    talent_offiq: float = 0.0
+    talent_defiq: float = 0.0
+    talent_luck: float = 0.0
+    
+    # 可訓練屬性 (Trainable)
+    shot_accuracy: float = 0.0
+    shot_range: float = 0.0
+    off_pass: float = 0.0
+    off_dribble: float = 0.0
+    off_handle: float = 0.0
+    off_move: float = 0.0
+    def_rebound: float = 0.0
+    def_boxout: float = 0.0
+    def_contest: float = 0.0
+    def_disrupt: float = 0.0 # 抄截
+    
+    # 屬性總和 (用於 Phase 2 驗證 "能力與表現相關性")
+    attr_sum: int = 0
+    
+    # --- 5. 位置評分緩存 (Spec 1.1) ---
+    # 儲存該球員在 5 個位置的適性分數，避免重複計算
+    pos_scores: Dict[str, float] = field(default_factory=dict)
+    
+    # --- 6. 統計數據 (Spec 7.2 Output Data) ---
+    # 這些欄位將構成 Box Score，用於 Phase 2 的大數據分析
+    
+    # 基礎數據
+    stat_pts: int = 0   # 得分
+    stat_reb: int = 0   # 總籃板
+    stat_ast: int = 0   # 助攻
+    stat_stl: int = 0   # 抄截
+    stat_blk: int = 0   # 阻攻
+    stat_tov: int = 0   # 個人失誤
+    fouls: int = 0      # 犯規次數
+    
+    # 投籃細項
+    stat_fgm: int = 0   # 投籃命中 (含2分與3分)
+    stat_fga: int = 0   # 投籃出手
+    stat_3pm: int = 0   # 三分命中
+    stat_3pa: int = 0   # 三分出手
+    stat_ftm: int = 0   # 罰球命中
+    stat_fta: int = 0   # 罰球出手
+    
+    # 進階數據
+    stat_orb: int = 0   # 進攻籃板
+    stat_drb: int = 0   # 防守籃板
+    
+    # [Phase 2 新增] 快攻數據
+    # 用於驗證 "速度" 屬性是否正確轉化為快攻得分
+    stat_fb_made: int = 0    # 快攻進球數
+    stat_fb_attempt: int = 0 # 快攻嘗試數
 
-    def __init__(self, data: Dict[str, Any]):
-        """
-        初始化球員物件。
-        data: 來自資料庫或生成器的球員資料字典
-        """
-        # Identity
-        self.id = data.get('id', '')
-        self.name = data.get('name', 'Unknown')
-        self.position = data.get('position', 'G')
-        self.height = data.get('height', 190)
-        self.role = data.get('role', 'Bench')
-
-        # Attributes - 預設值給 1 避免計算錯誤
-        # Untrainable
-        self.ath_stamina = data.get('ath_stamina', 50)
-        self.ath_strength = data.get('ath_strength', 1)
-        self.ath_speed = data.get('ath_speed', 1)
-        self.ath_jump = data.get('ath_jump', 1)
-        self.shot_touch = data.get('shot_touch', 1)
-        self.shot_release = data.get('shot_release', 1)
-        self.talent_offiq = data.get('talent_offiq', 1)
-        self.talent_defiq = data.get('talent_defiq', 1)
-        self.talent_health = data.get('talent_health', 50)
-        self.talent_luck = data.get('talent_luck', 50)
-
-        # Trainable
-        self.shot_accuracy = data.get('shot_accuracy', 1)
-        self.shot_range = data.get('shot_range', 1)
-        self.def_rebound = data.get('def_rebound', 1)
-        self.def_boxout = data.get('def_boxout', 1)
-        self.def_contest = data.get('def_contest', 1)
-        self.def_disrupt = data.get('def_disrupt', 1)
-        self.off_move = data.get('off_move', 1)
-        self.off_dribble = data.get('off_dribble', 1)
-        self.off_pass = data.get('off_pass', 1)
-        self.off_handle = data.get('off_handle', 1)
-
-        # Dynamic State Init
-        self.current_stamina = 100.0
-        self.stamina_coeff = 1.0
-        self.fouls = 0
-        self.is_fouled_out = False
-        self.seconds_played = 0.0 # [Fix] 初始化為 0.0 秒
-        self.target_seconds = 0.0 # 需由教練系統設定
-        self.pos_scores = {}      # [New] 初始化為空字典
-
-        # Stats Init
-        self.stat_pts = 0
-        self.stat_reb = 0
-        self.stat_ast = 0
-        self.stat_stl = 0
-        self.stat_blk = 0
-        self.stat_tov = 0
-        self.stat_fga = 0
-        self.stat_fgm = 0
-        self.stat_3pa = 0
-        self.stat_3pm = 0
-        self.stat_fta = 0
-        self.stat_ftm = 0
-        self.stat_orb = 0
-        self.stat_drb = 0
-
-    def __repr__(self):
-        return f"<Player {self.name} ({self.position}) Pts:{self.stat_pts}>"
-
-
+@dataclass(slots=True)
 class EngineTeam:
     """
-    比賽引擎專用的隊伍資料結構。
+    比賽引擎專用球隊物件
     """
-    __slots__ = (
-        'id', 'name',
-        'roster',       # List[EnginePlayer] - 全隊名單 (12-15人)
-        'on_court',     # List[EnginePlayer] - 目前場上 5 人
-        'bench',        # List[EnginePlayer] - 目前板凳球員
-        'score',        # 當前得分
-        'timeouts',     # 剩餘暫停數 (預留)
-        'strategy',     # 戰術設定 (預留)
-        'best_five',    # List[EnginePlayer] - 預先計算好的最強5人 (Clutch Time用)
-        'stat_tov'      # [New] 團隊失誤統計 (Spec 6.7.B)
-    )
+    id: str
+    name: str
+    roster: List[EnginePlayer]
+    
+    # 動態陣容管理
+    on_court: List[EnginePlayer] = field(default_factory=list) # 場上 5 人
+    bench: List[EnginePlayer] = field(default_factory=list)    # 板凳球員
+    best_five: List[Optional[EnginePlayer]] = field(default_factory=list) # 最強 5 人
+    
+    # 團隊統計 (Spec 7.3)
+    score: int = 0
+    stat_tov: int = 0 # 團隊失誤 (如 8秒違例)
+    
+    # [Phase 2 新增] 進階團隊數據
+    stat_possessions: int = 0 # 回合數 (用於計算 Pace)
+    stat_fb_made: int = 0     # 團隊快攻進球
+    stat_fb_attempt: int = 0  # 團隊快攻嘗試
 
-    def __init__(self, team_id: str, name: str, roster: List[EnginePlayer]):
-        self.id = team_id
-        self.name = name
-        self.roster = roster
-        self.on_court = [] # 需由 Service 初始化時填入
-        self.bench = []    # 需由 Service 初始化時填入
-        self.score = 0
-        self.timeouts = 7
-        self.strategy = {}
-        self.best_five = [] # 需由 Service 計算後填入
-        self.stat_tov = 0   # [New] 初始化
-
-    def __repr__(self):
-        return f"<Team {self.name} Score:{self.score}>"
-
-
+@dataclass(slots=True)
 class MatchState:
     """
-    比賽狀態快照。
+    比賽狀態追蹤
     """
-    __slots__ = (
-        'quarter',          # 當前節數 (1-4, >4 為 OT)
-        'time_remaining',   # 該節剩餘秒數 (float)
-        'home_score',       # 主隊分數 (快取用，實際以 Team.score 為準)
-        'away_score',       # 客隊分數
-        'possession',       # 當前球權: 'home' 或 'away' (或 None)
-        'is_over',          # 比賽是否結束
-        'game_time_elapsed' # 總比賽經過時間 (秒)
-    )
-
-    def __init__(self, quarter_length: int):
-        self.quarter = 1
-        self.time_remaining = float(quarter_length)
-        self.home_score = 0
-        self.away_score = 0
-        self.possession = None
-        self.is_over = False
-        self.game_time_elapsed = 0.0
-
-    def __repr__(self):
-        return f"<MatchState Q{self.quarter} {self.time_remaining:.1f}s | {self.home_score}-{self.away_score}>"
-
-
-@dataclass
+    quarter: int = 1
+    time_remaining: float = 720.0
+    game_time_elapsed: float = 0.0
+    possession: str = "" # 當前擁有球權的球隊 ID
+    is_over: bool = False
+  
+@dataclass(slots=True)
 class MatchResult:
     """
-    比賽結果報表。
-    使用 dataclass 因為它主要用於輸出，不需要極致的運算效能優化。
+    比賽結果輸出 (Spec 7.1)
+    這是 Phase 2 數據分析的主要輸入來源。
     """
-    game_id: str
+    game_id: str          # 唯一識別碼
     home_team_id: str
     away_team_id: str
     home_score: int
     away_score: int
-    is_ot: bool
-    total_quarters: int
+    is_ot: bool           # 是否有延長賽
+    total_quarters: int   # 總節數
+    pbp_log: List[str]    # 文字轉播紀錄
     
-    # Box Score: { team_id: { player_id: { stat_key: value } } }
-    box_score: Dict[str, Dict[str, Dict[str, int]]] = field(default_factory=dict)
+    # [Phase 2 新增] 環境與節奏數據
+    # 這些數據對於驗證 "比賽引擎是否符合現代籃球節奏" 至關重要
+    pace: float = 0.0           # 節奏 (Possessions per 48 min)
+    home_possessions: int = 0   # 主隊總回合數
+    away_possessions: int = 0   # 客隊總回合數
     
-    # Play-by-Play log (Optional, can be disabled for performance)
-    pbp_log: List[str] = field(default_factory=list)
+    # 快攻統計 (用於驗證 Phase 4.4 節奏與環境)
+    home_fb_made: int = 0
+    home_fb_attempt: int = 0
+    away_fb_made: int = 0
+    away_fb_attempt: int = 0
+    
+    # 註：快攻成功率 (Success Rate) 可在資料庫層級透過 made/attempt 計算，
+    # 不需在此儲存浮點數，以節省空間。

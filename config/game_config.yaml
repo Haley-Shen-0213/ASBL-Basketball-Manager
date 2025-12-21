@@ -1,7 +1,7 @@
 # =============================================================================
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
-#   - Player System Specification v2.5
+#   - Player System Specification v3.1
 #   - Match Engine Specification v1.7 (2025/12/20 Update for 3pt base rate)
 # 路徑 config/game_config.yaml
 # =============================================================================
@@ -12,14 +12,14 @@ system: # 系統設定
 
 # =============================================================================
 # 1. 球員生成設定 (Player Generation)
-# 對應規格書: Player System v2.5
+# 對應規格書: Player System v3.1
 # =============================================================================
 generation:
-  # [Spec v2.5 Section 2.3] 等級與機率
+  # [Spec v3.1 Section 2.2.1] 等級與機率
   grades: ["SSR", "SS", "S", "A", "B", "C", "G"]
   grade_weights: [0.005, 0.025, 0.07, 0.14, 0.22, 0.26, 0.28]
   
-  # [Spec v2.5 Section 4.1.1] 薪資係數
+  # [Spec v3.1 Section 4.1.1] 薪資係數
   # 計算公式: 球員薪資 = (20項屬性總和) * 該等級係數
   # 用途: 決定球員身價，等級越高，每一點能力值換算的薪水越高
   salary_factors:
@@ -31,13 +31,13 @@ generation:
     C: 1.1
     G: 1.0
 
-  # [Spec v2.5 Section 2.4] 年齡生成規則
+  # [Spec v3.1 Section 2.5] 年齡生成規則
   # 用途: 決定新秀的初始年齡，SSR 最年輕(潛力最大)，G 級平均年齡較大
   age_rules:
     base: 18
     offsets: {SSR: 0, SS: 1, S: 2, A: 3, B: 4, C: 5, G: 6}
 
-  # [Spec v2.5 Section 4.1.2] 初始合約規則
+  # [Spec v3.1 Section 4.1.2] 初始合約規則
   # 用途: 生成球員時自動賦予的合約長度與角色定位
   contracts:
     SSR: {years: 4, role: "Star"}
@@ -48,12 +48,12 @@ generation:
     C:   {years: 1, role: "Role"}
     G:   {years: 1, role: "Bench"}
 
-  # [Spec v2.5 Section 2.3.1 & 2.3.2] 屬性定義
+  # [Spec v3.1 Section 2.2.2 & 2.4] 屬性定義
   attributes:
     untrainable: ["ath_stamina", "ath_strength", "ath_speed", "ath_jump", "shot_touch", "shot_release", "talent_offiq", "talent_defiq", "talent_health", "talent_luck"]
     trainable: ["shot_accuracy", "shot_range", "def_rebound", "def_boxout", "def_contest", "def_disrupt", "off_move", "off_dribble", "off_pass", "off_handle"]
 
-  # [Spec v2.5 Section 2.3.1] 天賦生成規則 (Untrainable)
+  # [Spec v3.1 Section 2.2.2] 天賦生成規則 (Untrainable)
   untrainable_rules:
     G:   {sum_min: 10,  sum_max: 400, stat_min: 1, stat_max: 99}
     C:   {sum_min: 399, sum_max: 600, stat_min: 1, stat_max: 99}
@@ -63,7 +63,7 @@ generation:
     SS:  {sum_min: 900, sum_max: 950, stat_min: 30, stat_max: 99}
     SSR: {sum_min: 951, sum_max: 990, stat_min: 91, stat_max: 99}
 
-  # [Spec v2.5 Section 2.3.2] 技術反向總上限 (Trainable Caps)
+  # [Spec v3.1 Section 2.4.1] 技術反向總上限 (Trainable Caps)
   # 用途: 限制可訓練屬性的初始總和，等級越低上限越高(即戰力)，等級越高上限越低(需培養)
   trainable_caps:
     G: 800
@@ -74,12 +74,70 @@ generation:
     SS: 550
     SSR: 550
 
+  # [Spec v3.1 Section 2.4.2] 位置檢核機制 (Position Validation) [v3.1 new]
+  # 用途: 確保生成的能力值分佈符合該位置的特徵，否則重骰
+  position_validation:
+    C:
+      condition: "sum(def_rebound, def_boxout, def_contest) > sum(others)"
+      others_count: 7
+    PF:
+      condition: "sum(def_rebound, def_boxout, def_contest) > sum(others)"
+      others_count: 7
+    SG:
+      condition: "sum(def_contest, def_disrupt, shot_range) > sum(others)"
+      others_count: 7
+    PG:
+      condition: "sum(def_disrupt, off_dribble, off_handle, off_pass) > sum(others)"
+      others_count: 6
+    SF:
+      condition: "none" # 無限制
+
+  # [Spec v3.1 Section 2.4.3] 身高修正機制 (Height Modifiers) [v3.1 new]
+  # 用途: 根據身高區間調整生成次數與數值加成
+  height_modifiers:
+    "160-169":
+      trials: 3
+      selection: "max" # 取最高總分
+      bonus_points: 30
+      bonus_type: "weighted" # 權重分配 (PG 關鍵屬性權重較高)
+    "170-179":
+      trials: 2
+      selection: "max"
+      bonus_points: 20
+      bonus_type: "weighted" # 權重分配 (PG 關鍵屬性權重較高)
+    "180-189":
+      trials: 1
+      selection: "none"
+      bonus_points: 10 # 全能力+1 = 總和+10
+      bonus_type: "flat" # 平均分配 (+1 per stat)
+    "190-209":
+      trials: 1
+      selection: "none"
+      bonus_points: 0
+      bonus_type: "none"
+    "210-219":
+      trials: 2
+      selection: "min" # 取最低總分
+      bonus_points: 0
+      bonus_type: "none"
+    "220-230":
+      trials: 3
+      selection: "min"
+      bonus_points: 0
+      bonus_type: "none"
+
+  # [Spec v3.1 Section 2.4.3] 權重分配規則 (Weighted Distribution Keys) [v3.1 new]
+  # 用途: 定義身高補償點數分配時，哪些屬性權重較高 (針對 PG 關鍵四項)
+  weighted_bonus_keys:
+    high_priority: ["def_disrupt", "off_dribble", "off_handle", "off_pass"]
+    low_priority: ["shot_accuracy", "shot_range", "def_rebound", "def_boxout", "def_contest", "off_move"]
+
 # =============================================================================
 # 2. 團隊與時間設定 (Team & Minutes)
-# 對應規格書: Player System v2.5 Section 5 & 6
+# 對應規格書: Player System v3.1 Section 5 & 6
 # =============================================================================
 team_creation:
-  # [Spec v2.5 Section 5] 開隊陣容檢核標準
+  # [Spec v3.1 Section 5] 開隊陣容檢核標準
   composition_count: {SSR: 1, SS: 1, S: 1, A: 2, B: 2, C: 3, G: 5} # 總共 15 人
   validation:
     min_c: 2       # 最少中鋒數
@@ -88,7 +146,7 @@ team_creation:
     min_forwards: 4 # SF+PF 總數下限
 
 minutes_distribution:
-  # [Spec v2.5 Section 6] 上場時間分配
+  # [Spec v3.1 Section 6] 上場時間分配
   total_minutes: 240
   roles:
     Star:     {base: 30, min_w: -1, max_w: 5}

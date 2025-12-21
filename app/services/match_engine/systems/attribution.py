@@ -7,14 +7,11 @@ from ..utils.rng import rng
 class AttributionSystem:
     """
     數據歸屬系統 (Level 3) - Config Driven
-    對應 Spec v1.5 Section 6
+    對應 Spec v1.8 Section 6
     
-    [Fix Log]
-    - Aligned method signatures with MatchEngine core calls.
-    - record_block now accepts (blocker, shooter).
-    - Renamed record_shot_attempt -> record_attempt.
-    - Renamed determine_assister -> determine_assist_provider.
-    - Added record_assist method.
+    [Phase 2 Updates]
+    - Added record_possession for Pace calculation.
+    - Added record_fastbreak_event for Fastbreak Efficiency analysis.
     """
 
     @staticmethod
@@ -80,6 +77,7 @@ class AttributionSystem:
             total_weight += w
 
         # 分配邏輯: 權重佔比最小者優先 (Spec 6.1)
+        # 註：此處維持原邏輯，若需優化可改為累積機率
         weights.sort(key=lambda x: x[1])
         r = rng.get_float(0.0, 1.0)
         current_prob = 0.0
@@ -144,7 +142,7 @@ class AttributionSystem:
     @staticmethod
     def determine_assist_provider(off_team: EngineTeam, shooter: EnginePlayer, config: Dict) -> Optional[EnginePlayer]:
         """
-        [Spec 6.4] 決定助攻者 (原名 determine_assister)
+        [Spec 6.4] 決定助攻者
         """
         candidates = [p for p in off_team.on_court if p.id != shooter.id]
         if not candidates: return None
@@ -198,6 +196,7 @@ class AttributionSystem:
         for p, w in weights:
             if upto + w >= r: return p
             upto += w
+      
         return candidates[-1]
 
     # =========================================================================
@@ -214,7 +213,7 @@ class AttributionSystem:
 
     @staticmethod
     def record_attempt(player: EnginePlayer, is_3pt: bool):
-        """記錄出手 (原名 record_shot_attempt)"""
+        """記錄出手"""
         player.stat_fga += 1
         if is_3pt: player.stat_3pa += 1
 
@@ -222,7 +221,6 @@ class AttributionSystem:
     def record_score(team: EngineTeam, scorer: EnginePlayer, points: int, is_3pt: bool, assister: Optional[EnginePlayer] = None):
         """
         記錄得分 (進球)
-        [Critical Fix] 進球必須同時增加 FGA 與 FGM
         """
         # 1. 團隊得分
         team.score += points
@@ -235,7 +233,7 @@ class AttributionSystem:
         if is_3pt: 
             scorer.stat_3pm += 1
         
-        # 4. [Fix] 出手數 (進球也算一次出手)
+        # 4. 出手數 (進球也算一次出手)
         scorer.stat_fga += 1
         if is_3pt:
             scorer.stat_3pa += 1
@@ -246,7 +244,7 @@ class AttributionSystem:
 
     @staticmethod
     def record_assist(passer: EnginePlayer):
-        """[New] 記錄助攻 (Core 獨立呼叫)"""
+        """記錄助攻 (Core 獨立呼叫)"""
         passer.stat_ast += 1
 
     @staticmethod
@@ -266,18 +264,14 @@ class AttributionSystem:
 
     @staticmethod
     def record_block(blocker: EnginePlayer, shooter: EnginePlayer):
-        """
-        記錄封阻 [Fix: 接收 (blocker, shooter)]
-        """
+        """記錄封阻"""
         blocker.stat_blk += 1
         # 籃球規則: 被蓋火鍋算一次出手 (FGA)
-        # 由於 Core 在封蓋後直接返回 'turnover'，不會進入投籃結算，
-        # 因此必須在這裡補上記錄 FGA。
         shooter.stat_fga += 1
 
     @staticmethod
     def record_team_turnover(team: EngineTeam):
-        """記錄團隊失誤 (如 8秒違例)"""
+        """記錄團隊失誤"""
         if hasattr(team, 'stat_tov'): team.stat_tov += 1
 
     @staticmethod
@@ -286,9 +280,39 @@ class AttributionSystem:
         player.fouls += 1
 
     @staticmethod
-    def record_free_throw(player: EnginePlayer, made: bool):
+    def record_free_throw(team: EngineTeam, player: EnginePlayer, made: bool):
         """記錄罰球"""
         player.stat_fta += 1
         if made:
             player.stat_ftm += 1
             player.stat_pts += 1
+            team.score += 1 
+
+    # =========================================================================
+    # Phase 2 New Recording Methods
+    # =========================================================================
+
+    @staticmethod
+    def record_possession(team: EngineTeam):
+        """
+        [Phase 2] 記錄回合數
+        用於計算 Pace (Possessions per 48 min)。
+        應在每次球權轉換 (得分、失誤、防守籃板) 時呼叫。
+        """
+        team.stat_possessions += 1
+
+    @staticmethod
+    def record_fastbreak_event(team: EngineTeam, player: EnginePlayer, made: bool):
+        """
+        [Phase 2] 記錄快攻事件
+        用於驗證速度屬性與快攻效率的相關性。
+        不論進球與否，都應記錄嘗試次數。
+        """
+        # 記錄嘗試
+        team.stat_fb_attempt += 1
+        player.stat_fb_attempt += 1
+        
+        # 記錄進球
+        if made:
+            team.stat_fb_made += 1
+            player.stat_fb_made += 1

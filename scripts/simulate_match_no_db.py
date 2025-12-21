@@ -36,30 +36,37 @@ except ImportError:
 def convert_payload_to_engine_player(payload, p_id):
     """
     將 PlayerGenerator 產生的字典 (Payload) 轉換為 MatchEngine 需要的 EnginePlayer 物件。
+    [Fix] 修正了參數傳遞方式，確保 dataclass 能正確接收。
     """
-    # 複製基本資料
+    # 1. 提取必要欄位
+    # 注意：必須與 EnginePlayer 定義的順序或名稱一致
     data = {
         'id': str(p_id),
         'name': payload['name'],
         'position': payload['position'],
-        'height': payload['height'],
-        'role': payload['contract_rule']['role']
+        'role': payload['contract_rule']['role'],
+        'grade': payload.get('grade', 'G'), # [Fix] 補上 grade，若無則預設 G
+        'height': payload['height']
     }
     
-    # 合併數值屬性 (raw_stats 包含 ath_stamina, shot_accuracy 等 Config 定義的 Key)
-    # 這是 EnginePlayer 初始化所需的扁平化結構
+    # 2. 合併數值屬性
+    # EnginePlayer 使用扁平化屬性 (例如 ath_stamina)，需確保 payload['raw_stats'] 包含這些 key
     if 'raw_stats' in payload:
         data.update(payload['raw_stats'])
     else:
-        # 若無 raw_stats，嘗試從 detailed_stats 攤平 (Fallback)
-        for cat, stats in payload.get('detailed_stats', {}).items():
-            for k, v in stats.items():
-                # 這裡需要對應回 config key，略顯複雜，假設 raw_stats 必存
-                pass
-        if not 'ath_stamina' in data and 'raw_stats' not in payload:
-             print(f"[Warning] Player {payload['name']} missing stats.")
+        # Fallback: 若無 raw_stats，這裡需要實作從 detailed_stats 轉換的邏輯
+        # 暫時假設 TeamCreator 會回傳 raw_stats
+        print(f"[Warning] Player {payload['name']} missing raw_stats.")
 
-    return EnginePlayer(data)
+    # 3. 過濾多餘的 Key (因為 slots=True 不允許未定義的屬性)
+    # 取得 EnginePlayer 允許的所有欄位名稱
+    allowed_keys = EnginePlayer.__slots__ if hasattr(EnginePlayer, '__slots__') else EnginePlayer.__annotations__.keys()
+    
+    filtered_data = {k: v for k, v in data.items() if k in allowed_keys}
+
+    # 4. 建立物件
+    # [Fix] 使用 **filtered_data 進行字典解包，將 key=value 傳入建構子
+    return EnginePlayer(**filtered_data)
 
 def format_time(seconds):
     """將秒數轉換為 MM:SS 格式"""
@@ -146,7 +153,6 @@ def main():
     
     # 1. Load Config
     print("[System] Loading Game Config...")
-    # [Fix] 使用 get() 取得完整設定檔 (default key_path=None)
     config = GameConfigLoader.get()
     
     if not config:
@@ -188,7 +194,7 @@ def main():
     away_team = build_engine_team("AWAY", away_name, away_roster_payload)
 
     # 4. Initialize Match Engine
-    print("[System] Booting Match Engine v1.6...")
+    print("[System] Booting Match Engine v1.8 (Phase 2)...")
     engine = MatchEngine(home_team, away_team, config)
 
     # 5. Run Simulation
@@ -212,6 +218,11 @@ def main():
     print(f"\n   {home_name:<30}  {result.home_score:>3}")
     print(f"   {away_name:<30}  {result.away_score:>3}")
     print(f"\n   Duration: {result.total_quarters} Quarters{ot_text}")
+    print(f"   Pace: {result.pace:.1f} (Possessions/48m)")
+    print("")
+    
+    # --- Fastbreak Stats ---
+    print(f"   [Fastbreak] Home: {result.home_fb_made}/{result.home_fb_attempt} | Away: {result.away_fb_made}/{result.away_fb_attempt}")
     print("")
 
     # --- Box Scores ---
