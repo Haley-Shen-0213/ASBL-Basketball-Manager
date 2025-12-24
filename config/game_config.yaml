@@ -1,7 +1,7 @@
 # =============================================================================
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
-#   - Player System Specification v3.1
+#   - Player System Specification v3.2 (2025/12/24 Update for TeamCreator role)
 #   - Match Engine Specification v1.7 (2025/12/20 Update for 3pt base rate)
 # 路徑 config/game_config.yaml
 # =============================================================================
@@ -74,6 +74,27 @@ generation:
     SS: 550
     SSR: 550
 
+  # [Spec v3.1 Section 2.3.1] 身高生成參數 (New)
+  # 用途: 定義 Box-Muller 演算法的參數，避免寫死在程式碼中
+  height_distribution:
+    mean: 195
+    std_dev: 10
+    min: 160
+    max: 230
+
+  # [Spec v3.1 Section 2.3.2] 位置判定矩陣 (New)
+  # 用途: 定義不同身高區間的位置機率分佈
+  # 邏輯: 程式會依序檢查 max_height，符合則使用該組權重
+  position_matrix:
+    - max_height: 189
+      weights: {PG: 60, SG: 40}
+    - max_height: 199
+      weights: {PG: 35, SG: 45, SF: 20}
+    - max_height: 209
+      weights: {PF: 50, SF: 20, C: 15, SG: 10, PG: 5}
+    - max_height: 999 # 210+ (Catch-all)
+      weights: {C: 45, PF: 30, SF: 10, SG: 10, PG: 5}
+
   # [Spec v3.1 Section 2.4.2] 位置檢核機制 (Position Validation) [v3.1 new]
   # 用途: 確保生成的能力值分佈符合該位置的特徵，否則重骰
   position_validation:
@@ -100,11 +121,15 @@ generation:
       selection: "max" # 取最高總分
       bonus_points: 30
       bonus_type: "weighted" # 權重分配 (PG 關鍵屬性權重較高)
+      key_ratio_min: 0.5
+      key_ratio_max: 1.0
     "170-179":
       trials: 2
       selection: "max"
       bonus_points: 20
       bonus_type: "weighted" # 權重分配 (PG 關鍵屬性權重較高)
+      key_ratio_min: 0.5
+      key_ratio_max: 1.0
     "180-189":
       trials: 1
       selection: "none"
@@ -144,6 +169,10 @@ team_creation:
     min_pg: 2      # 最少控衛數
     min_guards: 4  # PG+SG 總數下限
     min_forwards: 4 # SF+PF 總數下限
+
+  # [Spec v3.2 Section 5.4] 開隊球員特殊生成規則 (New)
+  # 用途: 僅在開隊時啟用能力下限限制，縮小隨機範圍
+  initial_team_min_ratio: 0.5 # 下限 = 上限 * 50%
 
 minutes_distribution:
   # [Spec v3.1 Section 6] 上場時間分配

@@ -226,3 +226,4 @@ logs/
 *.log
 output/
 tests/
+test_*

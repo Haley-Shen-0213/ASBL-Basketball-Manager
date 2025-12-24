@@ -1,6 +1,7 @@
 # app/services/player_generator.py
 import random
 import math
+import re
 from sqlalchemy.sql.expression import func
 from app import db
 from app.models.player import Player, Contract
@@ -9,201 +10,374 @@ from app.utils.game_config_loader import GameConfigLoader
 
 # ==========================================
 # ASBL Player Generator Service
-# Based on Specification v2.6 (Attributes Updated)
+# Specification: v3.1 (Final Revised - Dynamic Validation)
+# Environment: i9-14900k + 128G RAM
+# Features: 
+#   - Fully Configurable (Logic extracted from YAML)
+#   - Cache on Startup (Rule Compilation)
+#   - Stage-based Reroll
 # ==========================================
 
 class PlayerGenerator:
     
-    # [Spec v2.6 Section 2.3] 屬性映射表
-    # Key: game_config.yaml 中的設定鍵值
-    # Value: (Category, DB_Field_Key) 存入資料庫的結構路徑
+    # -------------------------------------------------------------------------
+    # 靜態快取區 (Static Cache)
+    # -------------------------------------------------------------------------
+    _names_cache = {'last': [], 'first': []}
+    _config_cache = {}
+    _is_initialized = False
+
+    # [Spec v2.6] 屬性映射表
     ATTR_MAPPING = {
-        # === Untrainable Stats (天賦) ===
+        # Untrainable (天賦)
         "ath_stamina":   ("physical", "stamina"),
         "ath_strength":  ("physical", "strength"),
         "ath_speed":     ("physical", "speed"),
         "ath_jump":      ("physical", "jumping"),
         "talent_health": ("physical", "health"),
-        
-        "shot_touch":    ("offense", "touch"),    # 修正: inside -> touch
-        "shot_release":  ("offense", "release"),  # 修正: 獨立欄位，不再與 accuracy 衝突
-        
+        "shot_touch":    ("offense", "touch"),
+        "shot_release":  ("offense", "release"),
         "talent_offiq":  ("mental", "off_iq"),
         "talent_defiq":  ("mental", "def_iq"),
         "talent_luck":   ("mental", "luck"),
-        
-        # === Trainable Stats (技術) ===
-        "shot_accuracy": ("offense", "accuracy"), # 修正: mid_range -> accuracy
-        "shot_range":    ("offense", "range"),    # 修正: three_point -> range
-        
+        # Trainable (技術)
+        "shot_accuracy": ("offense", "accuracy"),
+        "shot_range":    ("offense", "range"),
         "off_pass":      ("offense", "passing"),
         "off_dribble":   ("offense", "dribble"),
         "off_handle":    ("offense", "handle"),
         "off_move":      ("offense", "move"),
-        
         "def_rebound":   ("defense", "rebound"),
         "def_boxout":    ("defense", "boxout"),
         "def_contest":   ("defense", "contest"),
         "def_disrupt":   ("defense", "disrupt")
     }
 
-    @staticmethod
-    def _get_random_text(category, length_filter=None):
-        """從資料庫隨機取得姓名"""
-        query = NameLibrary.query.filter_by(category=category)
-        
-        if length_filter:
-            if length_filter == '1':
-                query = query.filter(func.char_length(NameLibrary.text) == 1)
-            elif length_filter == '2':
-                query = query.filter(func.char_length(NameLibrary.text) == 2)
-            elif length_filter == '3+':
-                query = query.filter(func.char_length(NameLibrary.text) >= 3)
-        
-        obj = query.order_by(func.random()).first()
-        # Fallback: 如果找不到特定長度的字，則隨機取一個
-        if not obj and length_filter:
-             obj = NameLibrary.query.filter_by(category=category).order_by(func.random()).first()
-             
-        return obj.text if obj else ""
+    @classmethod
+    def initialize_class(cls):
+        """
+        [系統初始化]
+        在伺服器啟動時呼叫，將資料與設定載入記憶體。
+        包含將 YAML 字串規則編譯為 Python 物件的邏輯。
+        """
+        if cls._is_initialized:
+            return
 
+        print("[PlayerGenerator] Initializing cache for High Performance Mode...")
+
+        # 1. 載入姓名庫
+        lasts = db.session.query(NameLibrary.text).filter_by(category='last').yield_per(1000)
+        firsts = db.session.query(NameLibrary.text).filter_by(category='first').yield_per(1000)
+        
+        cls._names_cache['last'] = [row.text for row in lasts]
+        cls._names_cache['first'] = [row.text for row in firsts]
+
+        # 2. 預載入 Config (基礎)
+        cls._config_cache['grades'] = GameConfigLoader.get('generation.grades')
+        cls._config_cache['grade_weights'] = GameConfigLoader.get('generation.grade_weights')
+        cls._config_cache['untrainable_keys'] = GameConfigLoader.get('generation.attributes.untrainable')
+        cls._config_cache['trainable_keys'] = GameConfigLoader.get('generation.attributes.trainable')
+        cls._config_cache['height_modifiers'] = GameConfigLoader.get('generation.height_modifiers')
+        cls._config_cache['weighted_bonus_keys'] = GameConfigLoader.get('generation.weighted_bonus_keys')
+        
+        # 3. 預載入身高與位置參數 (消除 Hardcode)
+        cls._config_cache['height_dist'] = GameConfigLoader.get('generation.height_distribution')
+        
+        # 3.1 位置矩陣優化
+        raw_pos_matrix = GameConfigLoader.get('generation.position_matrix')
+        cls._config_cache['pos_matrix_optimized'] = []
+        for entry in raw_pos_matrix:
+            cls._config_cache['pos_matrix_optimized'].append({
+                'threshold': entry['max_height'],
+                'roles': list(entry['weights'].keys()),
+                'weights': list(entry['weights'].values())
+            })
+
+        # 3.2 [New] 位置檢核規則編譯 (Rule Compiler)
+        # 將 YAML 中的 "sum(a, b, c) > ..." 字串解析為 Python list ['a', 'b', 'c']
+        raw_validation = GameConfigLoader.get('generation.position_validation')
+        cls._config_cache['pos_validation_compiled'] = {}
+        
+        for pos, rule in raw_validation.items():
+            condition_str = rule.get('condition', 'none')
+            if condition_str == 'none':
+                cls._config_cache['pos_validation_compiled'][pos] = None
+            else:
+                # 使用 Regex 提取 sum(...) 中的內容
+                # 假設格式總是 sum(key1, key2...) > ...
+                match = re.search(r"sum\((.*?)\)", condition_str)
+                if match:
+                    keys_str = match.group(1)
+                    # 轉為 list: ['def_rebound', 'def_boxout', 'def_contest']
+                    keys = [k.strip() for k in keys_str.split(',')]
+                    cls._config_cache['pos_validation_compiled'][pos] = keys
+                else:
+                    # Fallback: 若解析失敗，視為無限制，避免 Crash
+                    print(f"[Warning] Failed to parse validation rule for {pos}: {condition_str}")
+                    cls._config_cache['pos_validation_compiled'][pos] = None
+
+        # 4. 預載入各等級規則
+        cls._config_cache['rules_by_grade'] = {}
+        for g in cls._config_cache['grades']:
+            cls._config_cache['rules_by_grade'][g] = {
+                'untrainable': GameConfigLoader.get(f'generation.untrainable_rules.{g}'),
+                'trainable_cap': GameConfigLoader.get(f'generation.trainable_caps.{g}'),
+                'salary_factor': GameConfigLoader.get(f'generation.salary_factors.{g}'),
+                'contract': GameConfigLoader.get(f'generation.contracts.{g}'),
+                'age_offset': GameConfigLoader.get(f'generation.age_rules.offsets.{g}')
+            }
+
+        cls._is_initialized = True
+        print(f"[PlayerGenerator] Cache initialized. Validation Rules Compiled.")
+
+    # =========================================================================
+    # 1. 姓名生成 (Name Generation)
+    # =========================================================================
     @classmethod
     def _generate_name(cls):
-        """生成符合規則的姓名 (Spec v2.2)"""
+        if not cls._is_initialized: cls.initialize_class()
+
         r = random.random()
-        # 姓氏長度機率: 單字(80%), 雙字(15%), 長字(5%)
-        if r < 0.80: len_filter = '1'
-        elif r < 0.95: len_filter = '2'
-        else: len_filter = '3+'
-            
-        last_name = cls._get_random_text('last', length_filter=len_filter) or "無名"
-        first_name = cls._get_random_text('first') or "氏"
+        target_len = 1 if r < 0.80 else (2 if r < 0.95 else 3)
+        
+        valid_lasts = [n for n in cls._names_cache['last'] if (len(n) == target_len if target_len < 3 else len(n) >= 3)]
+        last_name = random.choice(valid_lasts) if valid_lasts else random.choice(cls._names_cache['last'])
+        first_name = random.choice(cls._names_cache['first'])
+        
         full_name = last_name + first_name
         
-        # 補字邏輯
-        should_add_char = False
+        should_add = False
         if len(full_name) <= 2:
-            if random.choice([True, False]): should_add_char = True
+            should_add = random.choice([True, False])
         elif len(last_name) > 1 and len(first_name) == 1:
-            if random.choice([True, False]): should_add_char = True
-        
-        if should_add_char:
-            second_char = cls._get_random_text('first')
-            # 防呆: 只有當補的字是單字時才加上，避免變成四字以上怪名
-            if second_char and len(second_char) == 1:
+            should_add = random.choice([True, False])
+            
+        if should_add:
+            second_char = random.choice(cls._names_cache['first'])
+            if len(second_char) == 1:
                 full_name += second_char
-        
+                
         return full_name
 
-    @staticmethod
-    def _generate_height():
-        """生成身高 (Box-Muller Transform)"""
-        mean, std_dev = 195, 10
-        min_h, max_h = 160, 230
+    # =========================================================================
+    # 2. 天賦生成 (Untrainable Stats)
+    # =========================================================================
+    @classmethod
+    def _generate_untrainable_stats(cls, grade):
+        keys = cls._config_cache['untrainable_keys']
+        rule = cls._config_cache['rules_by_grade'][grade]['untrainable']
+        
+        stat_min, stat_max = rule["stat_min"], rule["stat_max"]
+        sum_min, sum_max = rule["sum_min"], rule["sum_max"]
+        
+        while True:
+            stats = {k: stat_min for k in keys}
+            current_sum = sum(stats.values())
+            target_sum = random.randint(sum_min, sum_max)
+            remaining = target_sum - current_sum
+            
+            valid_keys = list(keys)
+            while remaining > 0 and valid_keys:
+                k = random.choice(valid_keys)
+                space = stat_max - stats[k]
+                if space <= 0:
+                    valid_keys.remove(k)
+                    continue
+                
+                step = random.randint(1, min(remaining, space, 10))
+                stats[k] += step
+                remaining -= step
+            
+            if remaining == 0:
+                return stats
+
+    # =========================================================================
+    # 3. 身高與位置 (Height & Position) - Fully Configurable
+    # =========================================================================
+    @classmethod
+    def _generate_height(cls):
+        conf = cls._config_cache['height_dist']
+        mean, std_dev = conf['mean'], conf['std_dev']
+        min_h, max_h = conf['min'], conf['max']
+        
         while True:
             u1, u2 = random.random(), random.random()
             z = math.sqrt(-2.0 * math.log(max(u1, 1e-12))) * math.cos(2.0 * math.pi * u2)
-            height = mean + z * std_dev
+            height = int(round(mean + z * std_dev))
             if min_h <= height <= max_h:
-                return min(int(round(height)), max_h)
-
-    @staticmethod
-    def _pick_position(height_cm):
-        """根據身高決定位置 (機率分佈)"""
-        r = random.random()
-        if height_cm < 190:
-            return "PG" if r < 0.60 else "SG"
-        elif height_cm < 200:
-            if r < 0.35: return "PG"
-            elif r < 0.80: return "SG"
-            else: return "SF"
-        elif height_cm < 210:
-            if r < 0.05: return "PG"
-            elif r < 0.15: return "SG"
-            elif r < 0.35: return "SF"
-            elif r < 0.85: return "PF"
-            else: return "C"
-        else:
-            if r < 0.05: return "PG"
-            elif r < 0.15: return "SG"
-            elif r < 0.25: return "SF"
-            elif r < 0.55: return "PF"
-            else: return "C"
+                return height
 
     @classmethod
-    def _generate_stats_by_grade(cls, grade):
-        """根據等級生成屬性 (Spec v2.3 & v2.6)"""
-        untrainable_keys = GameConfigLoader.get('generation.attributes.untrainable')
-        trainable_keys = GameConfigLoader.get('generation.attributes.trainable')
-        
-        u_rule = GameConfigLoader.get(f'generation.untrainable_rules.{grade}')
-        t_cap = GameConfigLoader.get(f'generation.trainable_caps.{grade}')
+    def _pick_position(cls, h):
+        for rule in cls._config_cache['pos_matrix_optimized']:
+            if h <= rule['threshold']:
+                return random.choices(rule['roles'], weights=rule['weights'], k=1)[0]
+        return "C"
 
-        # 1. 生成 Untrainable Stats (天賦)
-        stat_min, stat_max = u_rule["stat_min"], u_rule["stat_max"]
-        stats = {k: stat_min for k in untrainable_keys}
+    # =========================================================================
+    # 4. 可訓練能力生成 (Trainable Stats)
+    # =========================================================================
+    
+    @classmethod
+    def _check_position_validation(cls, stats, pos):
+        """
+        [Spec 2.4.2] 位置檢核機制 (Dynamic)
+        不再使用 Hardcode，而是讀取初始化時編譯好的 Key List
+        """
+        # 1. 取得該位置的關鍵屬性列表 (List of keys)
+        core_keys = cls._config_cache['pos_validation_compiled'].get(pos)
         
-        target_sum = random.randint(u_rule["sum_min"], u_rule["sum_max"])
-        remaining = target_sum - sum(stats.values())
-        capacity = {k: (stat_max - stats[k]) for k in untrainable_keys}
+        # 若無規則 (如 SF)，直接通過
+        if not core_keys:
+            return True
+            
+        # 2. 計算核心總和
+        # 使用 Generator Expression 進行加總，效能極佳
+        core_sum = sum(stats[k] for k in core_keys)
+        
+        # 3. 計算總和
+        total_sum = sum(stats.values())
+        
+        # 4. 判定: 核心 > (總和 - 核心) => 核心 > 其他
+        return core_sum > (total_sum - core_sum)
 
-        while remaining > 0:
-            candidates = [k for k in untrainable_keys if capacity[k] > 0]
-            if not candidates: break
-            k = random.choice(candidates)
-            step = min(remaining, capacity[k], random.randint(1, 3))
-            stats[k] += step
-            capacity[k] -= step
-            remaining -= step
+    @staticmethod
+    def _safe_distribute(stats, target_keys, points_to_add):
+        """[Helper] 安全分配點數，包含防爆機制 (Max 99)"""
+        if points_to_add <= 0: return
+        valid_keys = list(target_keys)
+        while points_to_add > 0 and valid_keys:
+            k = random.choice(valid_keys)
+            capacity = 99 - stats[k]
+            if capacity <= 0:
+                valid_keys.remove(k)
+                continue
+            stats[k] += 1
+            points_to_add -= 1
+
+    @classmethod
+    def _distribute_bonus_points(cls, stats, bonus, bonus_type, bonus_config=None):
+        """[Spec 2.4.3] 執行加點邏輯 (Revised)"""
+        if bonus <= 0: return stats
         
-        # 2. 生成 Trainable Stats (技術) - Reroll 機制
-        while True:
-            trainable_stats = {k: random.randint(1, 99) for k in trainable_keys}
-            if sum(trainable_stats.values()) <= t_cap:
-                break
+        all_keys = list(stats.keys())
         
-        stats.update(trainable_stats)
+        if bonus_type == 'flat':
+            per_stat = bonus // len(all_keys)
+            for k in all_keys:
+                stats[k] = min(99, stats[k] + per_stat)
+                
+        elif bonus_type == 'weighted':
+            ratio_min = bonus_config.get('key_ratio_min', 0.5) if bonus_config else 0.5
+            ratio_max = bonus_config.get('key_ratio_max', 1.0) if bonus_config else 1.0
+            
+            ratio = random.uniform(ratio_min, ratio_max)
+            key_pool = int(bonus * ratio)
+            general_pool = bonus - key_pool
+            
+            high_p_keys = cls._config_cache['weighted_bonus_keys']['high_priority']
+            
+            cls._safe_distribute(stats, high_p_keys, key_pool)
+            cls._safe_distribute(stats, all_keys, general_pool)
+                    
         return stats
 
     @classmethod
+    def _generate_trainable_stats(cls, grade, height, position):
+        keys = cls._config_cache['trainable_keys']
+        cap = cls._config_cache['rules_by_grade'][grade]['trainable_cap']
+        
+        # 1. 取得身高修正規則
+        mod_rules = cls._config_cache['height_modifiers']
+        # 區間判斷邏輯 (可以進一步優化為 Config 驅動，但此處為效能熱點，且區間變動機率低)
+        if 160 <= height <= 169: rule = mod_rules['160-169']
+        elif 170 <= height <= 179: rule = mod_rules['170-179']
+        elif 180 <= height <= 189: rule = mod_rules['180-189']
+        elif 190 <= height <= 209: rule = mod_rules['190-209']
+        elif 210 <= height <= 219: rule = mod_rules['210-219']
+        elif 220 <= height <= 230: rule = mod_rules['220-230']
+        else: rule = mod_rules['190-209']
+
+        trials = rule.get('trials', 1)
+        selection = rule.get('selection', 'none')
+        bonus = rule.get('bonus_points', 0)
+        bonus_type = rule.get('bonus_type', 'none')
+
+        candidates = []
+
+        # 2. 執行 Trials (分階段重骰)
+        for _ in range(trials):
+            while True:
+                temp_stats = {k: random.randint(1, 99) for k in keys}
+                if sum(temp_stats.values()) > cap:
+                    continue
+                # [Dynamic Check]
+                if not cls._check_position_validation(temp_stats, position):
+                    continue
+                candidates.append(temp_stats)
+                break
+        
+        # 3. 選擇最佳/最差
+        final_stats = candidates[0]
+        if selection == 'max':
+            final_stats = max(candidates, key=lambda x: sum(x.values()))
+        elif selection == 'min':
+            final_stats = min(candidates, key=lambda x: sum(x.values()))
+            
+        # 4. 應用身高獎勵
+        final_stats = cls._distribute_bonus_points(final_stats, bonus, bonus_type, rule)
+        
+        return final_stats
+
+    # =========================================================================
+    # 主流程 (Main Workflow)
+    # =========================================================================
+    @classmethod
     def generate_payload(cls, specific_grade=None):
-        """
-        [核心] 生成單一球員數據 Payload (不寫入 DB)
-        """
+        if not cls._is_initialized: cls.initialize_class()
+
+        # 1. Name
+        name = cls._generate_name()
+
+        # 2. Grade
         if specific_grade:
             grade = specific_grade
         else:
-            grades = GameConfigLoader.get('generation.grades')
-            weights = GameConfigLoader.get('generation.grade_weights')
-            grade = random.choices(grades, weights=weights, k=1)[0]
+            grade = random.choices(
+                cls._config_cache['grades'], 
+                weights=cls._config_cache['grade_weights'], 
+                k=1
+            )[0]
 
-        name = cls._generate_name()
+        # 3. Untrainable
+        untrainable = cls._generate_untrainable_stats(grade)
+
+        # 4. Height & Position
         height = cls._generate_height()
         position = cls._pick_position(height)
-        
-        # Spec v2.4 年齡生成
-        age_base = GameConfigLoader.get('generation.age_rules.base', 18)
-        age_offset = GameConfigLoader.get(f'generation.age_rules.offsets.{grade}', 6)
+
+        # 5. Trainable
+        trainable = cls._generate_trainable_stats(grade, height, position)
+
+        # 6. Age
+        age_base = 18
+        age_offset = cls._config_cache['rules_by_grade'][grade]['age_offset']
         age = age_base + random.randint(0, age_offset)
 
-        raw_stats = cls._generate_stats_by_grade(grade)
-        total_stats_sum = sum(raw_stats.values())
-
-        # Spec v2.1 薪資計算
-        salary_factor = GameConfigLoader.get(f'generation.salary_factors.{grade}', 1.0)
-        salary = int(round(total_stats_sum * salary_factor))
-
-        # Spec v2.4 初始合約
-        contract_rule = GameConfigLoader.get(f'generation.contracts.{grade}')
+        # 7. Derived Data
+        raw_stats = {**untrainable, **trainable}
+        total_sum = sum(raw_stats.values())
         
-        # 根據 ATTR_MAPPING 組裝詳細屬性結構
-        detailed_stats = {
-            "physical": {}, "offense": {}, "defense": {}, "mental": {}
-        }
+        salary_factor = cls._config_cache['rules_by_grade'][grade]['salary_factor']
+        salary = int(round(total_sum * salary_factor))
         
-        for config_key, (category, model_key) in cls.ATTR_MAPPING.items():
-            if config_key in raw_stats:
-                detailed_stats[category][model_key] = raw_stats[config_key]
+        contract_rule = cls._config_cache['rules_by_grade'][grade]['contract']
+
+        # 8. Assembly
+        detailed_stats = {"physical": {}, "offense": {}, "defense": {}, "mental": {}}
+        for cfg_key, (cat, db_key) in cls.ATTR_MAPPING.items():
+            if cfg_key in raw_stats:
+                detailed_stats[cat][db_key] = raw_stats[cfg_key]
 
         return {
             "name": name,
@@ -211,7 +385,7 @@ class PlayerGenerator:
             "age": age,
             "height": height,
             "position": position,
-            "rating": int(total_stats_sum / 20),
+            "rating": int(total_sum / 20),
             "salary": salary,
             "contract_rule": contract_rule,
             "detailed_stats": detailed_stats,
@@ -219,13 +393,10 @@ class PlayerGenerator:
         }
 
     # ====================================================
-    # 輸出方式 1: 大數據測試用 (CSV/Flat Format)
+    # 工具方法
     # ====================================================
     @staticmethod
     def to_flat_dict(payload):
-        """
-        將巢狀的 payload 攤平成單層字典，方便匯出 CSV 或 Pandas 分析。
-        """
         flat = {
             "name": payload['name'],
             "grade": payload['grade'],
@@ -237,22 +408,13 @@ class PlayerGenerator:
             "contract_years": payload['contract_rule']['years'],
             "contract_role": payload['contract_rule']['role']
         }
-        
-        # 將詳細屬性攤平，例如: physical_speed, offense_accuracy
-        for category, stats in payload['detailed_stats'].items():
-            for key, val in stats.items():
-                flat[f"{category}_{key}"] = val
-                
+        for cat, stats in payload['detailed_stats'].items():
+            for k, v in stats.items():
+                flat[f"{cat}_{k}"] = v
         return flat
 
-    # ====================================================
-    # 輸出方式 2: 正式營運用 (MySQL/SQLAlchemy)
-    # ====================================================
     @classmethod
     def save_to_db(cls, payload, user_id=None, team_id=None):
-        """
-        將 Payload 轉換為 ORM 物件並寫入資料庫
-        """
         player = Player(
             name=payload['name'],
             age=payload['age'],
@@ -282,32 +444,3 @@ class PlayerGenerator:
             contract_data = rule
 
         return player, contract_data
-
-    # ====================================================
-    # 舊接口相容 (預設走 DB)
-    # ====================================================
-    @classmethod
-    def generate_and_persist(cls, count=1, user_id=None, team_id=None):
-        new_players_preview = []
-        try:
-            for _ in range(count):
-                payload = cls.generate_payload()
-                player, contract_rule = cls.save_to_db(payload, user_id, team_id)
-                
-                preview_data = {
-                    "player_id": player.id,
-                    "player_name": player.name,
-                    "grade": payload['grade'],
-                    "age": player.age,
-                    "salary": payload['salary'],
-                    "contract": contract_rule
-                }
-                new_players_preview.append(preview_data)
-
-            db.session.commit()
-            return {"total_inserted": count, "preview": new_players_preview}
-
-        except Exception as e:
-            db.session.rollback()
-            print(f"Error in generate_and_persist: {e}")
-            return {"total_inserted": 0, "preview": []}

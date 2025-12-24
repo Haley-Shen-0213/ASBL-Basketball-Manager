@@ -373,3 +373,43 @@
 ### 🔜 下一步計畫
 - **生成器驗證**: 執行新一輪的大數據測試 (Big Data Verification)，確認 v3.1 的位置檢核是否會導致某些等級的球員生成失敗率過高。
 - **前端整合**: 將新的 Box Score 與進階數據串接至前端頁面。
+
+--
+
+## 2025-12-24 11:00 ：開隊生成規則優化與生成器效能重構 (Initial Roster Optimization & Performance Refactor)
+
+### ✅ 進度摘要
+本次更新主要實作了 **Player System Spec v3.2**，針對「開隊陣容」加入了能力下限保護機制，確保玩家初始隊伍的戰力下限。同時，為了應對接下來的上億次大數據測試，對 `PlayerGenerator` 進行了底層架構重構，引入了 **快取機制 (Caching)** 與 **規則預編譯 (Rule Compilation)**。最後，將模擬測試腳本的輸出介面全面 **繁體中文化**，提升開發體驗。
+
+### 🛠️ 技術細節
+
+1.  **開隊陣容優化 (Team Creator - Spec v3.2)**
+    - **能力下限檢核 (Lower Bound Validation)**:
+        - 在 `TeamCreator` 中新增 `_generate_qualified_player` 方法。
+        - 讀取 Config 中的 `initial_team_min_ratio` (預設 0.5)。
+        - 邏輯：若生成球員的 `可訓練能力總和` < `該等級上限 * 50%`，則視為無效球員並自動重骰 (Reroll)。
+        - **目的**：縮小開局隨機範圍，避免 G/C 級球員數值過低導致無法上場。
+    - **職責分離**: 堅持將此邏輯放在 `TeamCreator` 而非 `PlayerGenerator`，保持生成器的純粹隨機性，僅在組隊業務邏輯中進行篩選。
+
+2.  **生成器效能重構 (Player Generator Refactor)**
+    - **靜態快取 (Static Cache)**:
+        - 實作 `initialize_class` 方法。
+        - 啟動時一次性將 DB 中的 `NameLibrary` 與 YAML 中的 `GameConfig` 載入記憶體 (`_config_cache`)。
+        - **效益**: 消除每次生成球員時重複讀取 DB 與解析 YAML 的 I/O 開銷，大幅提升生成速度。
+    - **動態規則編譯**:
+        - 將 YAML 中的字串規則 (如 `"sum(def_rebound...) > ..."`) 在初始化階段解析為 Python List。
+        - 執行階段不再使用 Regex 解析，而是直接進行 List 運算，優化位置檢核效能。
+
+3.  **模擬工具中文化 (Simulation Script Localization)**
+    - 更新 `scripts/simulate_match_no_db.py`。
+    - **新增功能**: `print_team_details`，在模擬前列印雙方球員的等級、身高、總評與詳細屬性 (每 5 項換行)。
+    - **UI 優化**: 所有輸出訊息、表格標頭、系統日誌皆調整為 **繁體中文**，符合專案開發規範。
+
+### 📝 筆記
+- **效能預估**: 在 i9-14900K 環境下，預期新的 `PlayerGenerator` 配合快取機制，生成速度將比 v2.6 版本提升顯著，為接下來的模擬聯賽測試做好準備。
+- **除錯體驗**: 現在透過模擬腳本可以直接看到球員的細項數值，對於驗證「位置檢核」與「身高修正」是否生效非常有幫助。
+
+### 🔜 下一步計畫
+1.  **大數據測試球員產生報告**: 執行新版生成器，產出 100 萬筆數據的 KPI 報告，驗證 v3.2 下限規則與 v3.1 身高修正的分布情形。
+2.  **大數據測試比賽引擎**: 使用大量隨機隊伍進行對戰，分析比賽數據 (Pace, FG%, Score) 的常態分佈。
+3.  **設計模擬聯賽運作方式**: 規劃模擬選秀 (Draft) 邏輯及自由球員 (Free Agency) 生成機制。
