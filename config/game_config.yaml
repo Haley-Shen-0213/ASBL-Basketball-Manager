@@ -10,6 +10,17 @@ system: # 系統設定
   season_days: 91 # 賽季天數
   games_per_season: 70 # 賽季比賽數
 
+  # 新增：季後賽設定 (Playoff Configuration)
+  playoff:
+    series_length:
+      round_1: 3  # 16強賽 (打滿3場)
+      round_2: 3  # 8強賽 (打滿3場)
+      round_3: 3  # 4強賽 (打滿3場)
+      finals: 5   # 總冠軍賽 (打滿5場)
+    
+    # 用於程式邏輯判斷是否要強制打滿 (True=打滿, False=搶勝制)
+    force_full_series: True 
+
 # =============================================================================
 # 1. 球員生成設定 (Player Generation)
 # 對應規格書: Player System v3.1

@@ -134,13 +134,13 @@
 ### 2.4 可訓練能力生成 (Trainable Stats Generation)
 此步驟為生成流程中最複雜的環節，需綜合考量等級上限、位置檢核與身高修正。
 
-*   **項目 (10項)**：`投籃準心`, `射程`, `籃板`, `卡位`, `干擾`, `抄截`, `跑位`, `運球`, `傳球`, `控球`。
+*   **項目 (10項)**：`投籃技巧`, `射程`, `籃板`, `卡位`, `干擾`, `抄截`, `跑位`, `運球`, `傳球`, `控球`。
 
 **(V2.6 新增)**
 
 | 中文名稱 | Config Key (YAML) | DB Field (Storage) | 備註說明 |
 | :--- | :--- | :--- | :--- |
-| **投籃準心** | `shot_accuracy` | `offense.accuracy` | 影響投籃命中判定 |
+| **投籃技巧** | `shot_accuracy` | `offense.accuracy` | 影響投籃命中判定 |
 | **射程** | `shot_range` | `offense.range` | 影響投籃命中判定 |
 | **傳球** | `off_pass` | `offense.passing` | 影響進攻事件 |
 | **運球** | `off_dribble` | `offense.dribble` | 影響進攻事件 |

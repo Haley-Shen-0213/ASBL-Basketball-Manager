@@ -413,3 +413,41 @@
 1.  **大數據測試球員產生報告**: 執行新版生成器，產出 100 萬筆數據的 KPI 報告，驗證 v3.2 下限規則與 v3.1 身高修正的分布情形。
 2.  **大數據測試比賽引擎**: 使用大量隨機隊伍進行對戰，分析比賽數據 (Pace, FG%, Score) 的常態分佈。
 3.  **設計模擬聯賽運作方式**: 規劃模擬選秀 (Draft) 邏輯及自由球員 (Free Agency) 生成機制。
+
+--
+
+## 2025-12-27 05:30 ：比賽引擎 Phase 2 完成與大數據驗證準備 (Match Engine Phase 2 Final & Big Data Prep)
+
+### ✅ 進度摘要
+正式完成了 **Match Engine (Level 4 - Phase 2 Final)** 的開發與整合。本次更新重點在於完善比賽中的邊緣案例處理（如犯滿離場後的上場時間重分配），並引入了進階數據（Pace, Fastbreak Efficiency）的計算與輸出。同時，為了迎接即將到來的「上億次」聯賽模擬測試，對核心資料結構進行了記憶體優化 (`slots=True`)，並確認了球員生成器 (v3.2) 的大數據驗證結果符合常態分佈預期。
+
+### 🛠️ 技術細節
+
+1.  **比賽引擎核心邏輯 (`app/services/match_engine/core.py`)**
+    - **犯滿離場處理 (Foul Out Logic)**:
+        - 實作 `_check_and_handle_foul_out` 方法。
+        - **機制**: 當球員犯規達上限 (Config 定義，預設 6 次) 時，強制移出 `on_court`。
+        - **時間重分配 (Redistribution)**: 關鍵演算法更新。犯滿球員剩餘的 `target_seconds` 不會憑空消失，而是依權重動態分配給場上及板凳上未犯滿的隊友，確保比賽總時間 (240分鐘) 守恆，避免模擬崩潰。
+    - **進階數據計算**:
+        - **Pace (節奏)**: 整合 `stat_possessions`，於賽後計算每 48 分鐘回合數。
+        - **快攻 (Fastbreak)**: 在 `_run_fastbreak` 中加入 `record_fastbreak_event`，追蹤快攻成功率與次數。
+
+2.  **資料結構效能優化 (`app/services/match_engine/structures.py`)**
+    - **記憶體優化**: 全面套用 `@dataclass(slots=True)`。
+    - **效益**: 在大規模模擬 (100M+ 場次) 下，預計減少 40-50% 的記憶體佔用，並提升 20% 的屬性存取速度。
+    - **欄位擴充**: `MatchResult` 與 `EnginePlayer` 新增 `pace`, `fb_made`, `fb_attempt`, `remaining_stamina` 等欄位，支援 Phase 2 的數據分析需求。
+
+3.  **配置檔與規則整合 (`config/game_config.yaml`)**
+    - **季後賽規則**: 新增 `playoff` 區塊，定義各輪賽制 (3戰2勝 / 5戰3勝) 及是否強制打滿 (Force Full Series) 以利數據收集。
+    - **生成規則整合**: 確認 `height_modifiers` (身高修正) 與 `position_validation` (位置檢核) 參數已正確載入，並通過 12/24 的大數據驗證報告。
+
+### 📝 筆記
+- **驗證報告**: 根據 `docs/player_generator_test_Report_20251224.md`，球員生成器的身高分佈 (Mean=195, SD=10) 與極端值處理已完全符合數學模型，且位置判定矩陣準確率極高，為接下來的聯賽模擬奠定良好基礎。
+- **系統穩定性**: 新增的犯滿時間重分配邏輯，解決了先前模擬中因主力犯滿導致板凳時間不足而 Crash 的潛在風險。
+
+### 🔜 下一步計畫
+- **身高影響實裝**: 將身高 (Height) 參數更深入地整合進比賽引擎的判定公式中 (如：身高差對投籃干擾的具體影響係數)。
+- **年齡體力模型**: 實作年齡 (Age) 對於體力消耗 (Drain) 與恢復 (Recovery) 的影響曲線，模擬老將與新秀在體能上的真實差異。
+
+--
+

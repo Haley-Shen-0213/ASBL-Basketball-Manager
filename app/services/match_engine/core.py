@@ -32,6 +32,9 @@ class MatchEngine:
         self.quarter_length = general_config.get('quarter_length', 720)
         self.ot_length = general_config.get('ot_length', 300)
         
+        # [新增] 讀取犯規上限參數，預設為 6
+        self.foul_limit = general_config.get('foul_limit', 6)
+        
         self.state = MatchState(time_remaining=float(self.quarter_length))
         
         # 2. 執行賽前準備
@@ -512,6 +515,8 @@ class MatchEngine:
                 AttributionSystem.record_foul(fouler)
                 self._run_free_throw(off_team, shooter, 1)
                 log += " (And-1)"
+                # [新增] 檢查是否犯滿離場
+                self._check_and_handle_foul_out(def_team, fouler)
         else:
             AttributionSystem.record_attempt(shooter, is_3pt)
             log = f"{off_team.name} {shooter.name} {points}pt Miss"
@@ -522,6 +527,8 @@ class MatchEngine:
                 ft_count = 3 if is_3pt else 2
                 made = self._run_free_throw(off_team, shooter, ft_count)
                 log += f" (Foul {made}/{ft_count})"
+                # [新增] 檢查是否犯滿離場
+                self._check_and_handle_foul_out(def_team, fouler)
             else:
                 # Rebound
                 reb_config = sht_config.get('rebound', {})
@@ -565,3 +572,85 @@ class MatchEngine:
             else:
                 AttributionSystem.record_free_throw(team, shooter, False)
         return made
+    def _check_and_handle_foul_out(self, team: EngineTeam, player: EnginePlayer):
+        """
+        [Fix] 檢查並處理犯滿離場
+        邏輯：
+        1. 若犯規數達標，強制從 on_court 移除。
+        2. 將該球員剩餘的 target_seconds 按比例分配給其他未犯滿球員。
+        3. 從 bench 挑選替補上場。
+        """
+        # 取得當前犯規數 (相容性寫法，確保能讀取到數據)
+        current_fouls = getattr(player, 'stat_fouls', 0)
+        
+        if current_fouls >= self.foul_limit:
+            self.pbp_logs.append(f"{team.name} {player.name} Fouled Out ({current_fouls})")
+            
+            # 1. 從場上移除
+            if player in team.on_court:
+                team.on_court.remove(player)
+            
+            # =================================================================
+            # [新增邏輯] 時間重新分配 (Redistribute Minutes)
+            # =================================================================
+            # 計算該球員原本預計還要打多久
+            remaining_seconds = max(0.0, player.target_seconds - player.seconds_played)
+            
+            # 將犯滿球員的目標時間鎖定為「已上場時間」，確保系統不再分配時間給他
+            player.target_seconds = player.seconds_played
+            
+            if remaining_seconds > 0:
+                # 找出所有合格的接收者：場上其他球員 + 板凳球員 (排除已犯滿者)
+                # 注意：此時 player 已經從 team.on_court 移除了
+                valid_recipients = [
+                    p for p in (team.on_court + team.bench)
+                    if getattr(p, 'stat_fouls', 0) < self.foul_limit
+                ]
+                
+                # 計算接收者目前的總目標時間，作為分配權重
+                total_current_target = sum(p.target_seconds for p in valid_recipients)
+                
+                if total_current_target > 0:
+                    for p in valid_recipients:
+                        # 依照原本的角色權重分配時間
+                        # 原本打越久的主力，會分擔越多犯滿球員留下的時間
+                        share_ratio = p.target_seconds / total_current_target
+                        added_time = remaining_seconds * share_ratio
+                        p.target_seconds += added_time
+                        
+                    # 記錄日誌以便除錯
+                    # self.pbp_logs.append(f"Debug: Redistributed {remaining_seconds:.1f}s among {len(valid_recipients)} players")
+            # =================================================================
+
+            # 2. 尋找替補 (排除同樣犯滿的球員)
+            candidates = [
+                p for p in team.bench 
+                if getattr(p, 'stat_fouls', 0) < self.foul_limit
+            ]
+            
+            if not candidates:
+                # 極端保護：若板凳全犯滿，強制讓原球員繼續打以防 Crash，並記錄警告
+                # 注意：雖然前面把時間分配掉了，但為了不讓程式崩潰，還是得讓他上
+                team.on_court.append(player)
+                self.pbp_logs.append(f"WARNING: No available subs for {team.name}, {player.name} stays on court.")
+                return
+
+            # 3. 挑選最佳替補 (優先同位置，其次最高分)
+            sub = None
+            target_pos = getattr(player, 'position', 'C')
+            
+            pos_candidates = [p for p in candidates if p.pos_scores.get(target_pos, 0) > 0]
+            if pos_candidates:
+                sub = max(pos_candidates, key=lambda p: p.pos_scores.get(target_pos, 0))
+            else:
+                sub = max(candidates, key=lambda p: sum(p.pos_scores.values()))
+            
+            # 4. 執行替換
+            team.bench.remove(sub)
+            sub.position = target_pos # 繼承位置
+            team.on_court.append(sub)
+            
+            # 將犯滿球員移至板凳
+            team.bench.append(player)
+            
+            self.pbp_logs.append(f"Substitution: {sub.name} replaces {player.name} (Foul Out)")

@@ -94,6 +94,10 @@ class EnginePlayer:
     # 用於驗證 "速度" 屬性是否正確轉化為快攻得分
     stat_fb_made: int = 0    # 快攻進球數
     stat_fb_attempt: int = 0 # 快攻嘗試數
+    
+    # [Phase 2 新增] 體力分析
+    # 記錄比賽結束時的剩餘體力，用於分析體力消耗與上場時間的關係
+    stat_remaining_stamina: float = 0.0
 
 @dataclass(slots=True)
 class EngineTeam:
