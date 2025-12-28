@@ -580,8 +580,9 @@ class MatchEngine:
         2. 將該球員剩餘的 target_seconds 按比例分配給其他未犯滿球員。
         3. 從 bench 挑選替補上場。
         """
-        # 取得當前犯規數 (相容性寫法，確保能讀取到數據)
-        current_fouls = getattr(player, 'stat_fouls', 0)
+        # [Correction] 直接讀取 .fouls，避免 getattr 預設值 0 導致的邏輯失效
+        # EnginePlayer 使用 __slots__，直接存取比 getattr 快且安全
+        current_fouls = player.fouls
         
         if current_fouls >= self.foul_limit:
             self.pbp_logs.append(f"{team.name} {player.name} Fouled Out ({current_fouls})")
@@ -604,7 +605,7 @@ class MatchEngine:
                 # 注意：此時 player 已經從 team.on_court 移除了
                 valid_recipients = [
                     p for p in (team.on_court + team.bench)
-                    if getattr(p, 'stat_fouls', 0) < self.foul_limit
+                    if p.fouls < self.foul_limit  # [Fix] 直接存取 fouls
                 ]
                 
                 # 計算接收者目前的總目標時間，作為分配權重
@@ -625,7 +626,7 @@ class MatchEngine:
             # 2. 尋找替補 (排除同樣犯滿的球員)
             candidates = [
                 p for p in team.bench 
-                if getattr(p, 'stat_fouls', 0) < self.foul_limit
+                if p.fouls < self.foul_limit  # [Fix] 直接存取 fouls
             ]
             
             if not candidates:
