@@ -451,3 +451,49 @@
 
 --
 
+## 2025-12-29 21:00 ：比賽引擎物理修正與開隊邏輯升級 (Match Engine Physics & Team Gen v3.3)
+
+### ✅ 進度摘要
+本次更新完成了 **Match Engine Spec v2.1** 與 **Player System Spec v3.3** 的實作。重點在於提升比賽引擎的物理真實度（引入身高修正、年齡體力衰退），並優化了開隊生成邏輯，確保高階球員（SSR/SS/S）的位置覆蓋率。同時，產出了 1200 萬場次的模擬測試報告，驗證了數值模型的穩定性。
+
+### 🛠️ 技術細節
+
+1.  **比賽引擎優化 (Match Engine v2.1)**
+    - **身高修正 (Height Correction)**: 
+        - 實作 `_apply_height_correction`，在賽前針對身高過高或過矮的球員進行屬性微調（如矮個子運球加成、高個子運球懲罰）。
+        - 更新 `attr_pools`，將 `height` 加入投籃、籃板、封蓋的判定公式中。
+    - **體力系統升級**:
+        - 引入 **年齡衰退 (Age Decay)** 機制，超過 20 歲的球員體力消耗與恢復速度會隨年齡線性衰退。
+        - 修正 `_check_and_handle_foul_out`，採用 **Positional Top-K** 邏輯，將犯滿離場球員的時間精準分配給同位置最強的 3 名隊友，避免模擬崩潰。
+    - **規則參數化**: 將關鍵時刻閾值 (`clutch_time_threshold`) 與三分球加成倍率 (`multiplier_3pt`) 移至 Config 管理。
+
+2.  **開隊生成邏輯升級 (Team Creator v3.3)**
+    - **高階覆蓋檢核 (High-Tier Coverage)**:
+        - 在 `_validate_roster_positions` 新增邏輯。
+        - 強制要求隊伍中的高階球員 (SSR/SS/S) 必須覆蓋 C, PF, SF, SG, PG 全部 5 個位置，避免開局神卡位置重疊。
+    - **效能調整**: 配合更嚴格的檢核條件，增加了生成嘗試次數上限。
+
+3.  **測試與驗證工具**
+    - **新增 `scripts/debug_team_generation.py`**: 
+        - 用於生成測試用的球隊 Parquet 檔，並計算加權戰力，方便觀察數值分佈。
+    - **模擬報告 (`docs/team_creator_test_report_*.md`)**:
+        - 執行了 1200 萬場模擬。
+        - 確認勝率分佈正常 (強隊 ~58%, 弱隊 ~36%)。
+        - 確認體力系統運作正常 (疲勞狀態佔比 ~11%)。
+        - 確認犯規分佈正常 (平均單場 6.8 次)。
+
+4.  **規格書更新**
+    - 更新 `ASBL_Match_Engine_Specification.md` 至 v2.1。
+    - 更新 `ASBL_Player_System_Specification.md` 至 v3.3。
+    - 更新 `config/game_config.yaml` 對應上述變更。
+
+### 📝 筆記
+- **平衡性觀察**: 根據測試報告，T001 (SSR SG) 與 T002 (SSR SF) 的勝率顯著高於 T003/T004，顯示核心球員的影響力符合預期。
+- **體力影響**: 數據顯示「透支狀態 (<20)」的命中率並未顯著崩盤，可能需要微調 `stamina_nerf_threshold` 或衰退公式，讓疲勞懲罰更具體感。
+
+### 🔜 下一步計畫
+- **開隊數據統計驗證**: 針對生成的一億筆或大量開隊數據進行統計分析，確認 v3.3 規則下的分佈。
+- **定義聯賽與選秀**: 開始規劃 `League` 資料結構與 `Draft` 選秀邏輯。
+
+--
+

@@ -2,7 +2,7 @@
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
 #   - Player System Specification v3.2 (2025/12/24 Update for TeamCreator role)
-#   - Match Engine Specification v1.7 (2025/12/20 Update for 3pt base rate)
+#   - Match Engine Specification v2.1 (2025/12/28 Update)
 # 路徑 config/game_config.yaml
 # =============================================================================
 
@@ -23,7 +23,7 @@ system: # 系統設定
 
 # =============================================================================
 # 1. 球員生成設定 (Player Generation)
-# 對應規格書: Player System v3.1
+# 對應規格書: Player System v3.2
 # =============================================================================
 generation:
   # [Spec v3.1 Section 2.2.1] 等級與機率
@@ -52,7 +52,7 @@ generation:
   # 用途: 生成球員時自動賦予的合約長度與角色定位
   contracts:
     SSR: {years: 4, role: "Star"}
-    SS:  {years: 4, role: "Starter"}
+    SS:  {years: 4, role: "Star"}
     S:   {years: 4, role: "Starter"}
     A:   {years: 2, role: "Rotation"}
     B:   {years: 2, role: "Rotation"}
@@ -174,12 +174,19 @@ generation:
 # =============================================================================
 team_creation:
   # [Spec v3.1 Section 5] 開隊陣容檢核標準
-  composition_count: {SSR: 1, SS: 1, S: 1, A: 2, B: 2, C: 3, G: 5} # 總共 15 人
+  composition_count: {SSR: 1, SS: 2, S: 2, A: 2, B: 2, C: 2, G: 4} # 總共 15 人
   validation:
     min_c: 2       # 最少中鋒數
     min_pg: 2      # 最少控衛數
     min_guards: 4  # PG+SG 總數下限
     min_forwards: 4 # SF+PF 總數下限
+    
+    # 新增: Spec 5.2 高階球員位置覆蓋規則
+    # 程式邏輯: 檢查 team 中 grade 在 target_grades 的球員，其 position 集合是否包含 required_positions 的所有元素
+    high_tier_coverage:
+      enabled: True
+      target_grades: ["SSR", "SS", "S"]
+      required_positions: ["C", "PF", "SF", "SG", "PG"]
 
   # [Spec v3.2 Section 5.4] 開隊球員特殊生成規則 (New)
   # 用途: 僅在開隊時啟用能力下限限制，縮小隨機範圍
@@ -209,6 +216,7 @@ match_engine:
     substitution:
       foul_limit: 6                # 犯滿離場次數
       stamina_threshold: 80.0      # 低於此體力觸發換人
+      clutch_time_threshold: 120   # [Spec v2.1] 關鍵時刻定義 (最後2分鐘)
       
       # 犯滿離場後的時間重分配邏輯
       redistribution:
@@ -216,16 +224,31 @@ match_engine:
         top_k: 3                   # 取前 3 名
         positions: ["C", "PF", "SF", "SG", "PG"] # 遍歷順序 (共 15 個 slot)
     
-    # [Spec v1.4 Section 2.1 - 2.3] 體力系統參數
-    stamina_recovery_halftime: 20  # 中場休息回復體力值 (上限100)
+    # [Spec v2.1] 體力系統參數 (更新)
+    stamina_recovery_halftime: 20.0 # 中場休息時間 (分鐘)
+    stamina_recovery_quarter: 2.0   # 節間休息時間 (分鐘)
     stamina_nerf_threshold: 80     # 體力低於此數值開始，能力值會線性衰退
     stamina_min_multiplier: 0.21   # 體力耗盡(剩1)時，能力值剩下的百分比 (21%)
     stamina_drain_coeff: 3.0       # 體力消耗公式的倍率係數 (數值越大消耗越快)
+
+  # [Spec v2.1 Section 1.5] 賽前身高修正 (New)
+  height_correction:
+    bonus_threshold: 190 # BONUS_H
+    nerf_threshold: 210  # NERF_H
+    affected_attrs:
+      speed_dribble:
+        keys: ['ath_speed', 'off_dribble']
+        coeff: 0.02
+      handle_disrupt:
+        keys: ['off_handle', 'def_disrupt']
+        coeff: 0.01
 
   # [Spec v1.4 Section 2.3 & 2.4] 體力計算公式成分
   stamina_system:
     drain_attrs: ['ath_stamina', 'talent_health']   # 消耗公式: 3.0 * [1+(1-體能)] + (1-健康)
     recover_attrs: ['ath_stamina', 'talent_health'] # 恢復公式: 1.0 + 體能 - (1-健康)
+    age_threshold: 20      # [New Spec v2.1]
+    age_decay_rate: 0.01   # [New Spec v2.1]
 
   # [Spec 1.6 Section 1.5] 開場跳球設定 (New)
   jump_ball:
@@ -246,13 +269,14 @@ match_engine:
   # [Spec v1.4 Section 5.1.A] 屬性池定義
   # 用途: 定義「進攻總值」與「防守總值」包含哪些屬性
   attr_pools:
-    off_13: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'shot_accuracy', 'shot_range', 'off_move', 'off_dribble', 'off_pass', 'off_handle']
-    def_12: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 'off_move']
+    off_14: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'shot_accuracy', 'shot_range', 'off_move', 'off_dribble', 'off_pass', 'off_handle', 'height']
+    def_12: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 'off_move'] # Def 移除 height (由公式獨立處理或屬性池不含), Spec 5.2.A Def_Total 包含 height, 這裡補上
+    def_12_with_height: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'height', 'def_boxout', 'def_contest', 'def_disrupt', 'off_move']
     all_stats: [
       'ath_stamina', 'ath_strength', 'ath_speed', 'ath_jump', 
       'shot_touch', 'shot_release', 'talent_offiq', 'talent_defiq', 'talent_health', 'talent_luck',
       'shot_accuracy', 'shot_range', 'def_rebound', 'def_boxout', 'def_contest', 'def_disrupt', 
-      'off_move', 'off_dribble', 'off_pass', 'off_handle'
+      'off_move', 'off_dribble', 'off_pass', 'off_handle', 'height'
     ]
 
   # === 後場階段 (Backcourt Phase) [Spec v1.4 Section 3] ===
@@ -268,12 +292,12 @@ match_engine:
       steal_bonus_coeff: 0.001   # 抄截機率加成: (防守差值) * 0.1%
 
     formulas:
-      # [Spec 3.1] 屬性池
-      off_sum: ['off_dribble', 'off_pass', 'talent_offiq']       # 決定過半場速度的進攻屬性
-      def_sum: ['def_disrupt', 'def_contest', 'talent_defiq']    # 決定過半場阻礙的防守屬性
+      # [Spec 3.1] 屬性池 (增加身高懲罰)
+      off_sum: ['off_dribble', 'off_pass', 'talent_offiq', '-height']       # 決定過半場速度的進攻屬性
+      def_sum: ['def_disrupt', 'def_contest', 'talent_defiq', '-height']    # 決定過半場阻礙的防守屬性
       # [Spec 3.4] 抄截判定 (Def - Off)
-      steal_off: ['off_dribble', 'off_pass', 'talent_offiq']     # 被抄截者的抵抗屬性
-      steal_def: ['def_disrupt', 'def_contest', 'talent_defiq']  # 抄截者的攻擊屬性
+      steal_off: ['off_dribble', 'off_pass', 'talent_offiq', '-height']     # 被抄截者的抵抗屬性
+      steal_def: ['def_disrupt', 'def_contest', 'talent_defiq', '-height']  # 抄截者的攻擊屬性
 
     # [Spec v1.4 Section 3.5] 快攻判定
     fastbreak:
@@ -289,7 +313,7 @@ match_engine:
         chaser_selection: ['ath_speed', 'talent_defiq']  # 決定誰追防 (追最快者)
         
         # [Spec 3.5.A] 快攻綜合能力 (9項 vs 9項)
-        off_power: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'off_move', 'off_dribble']
+        off_power: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_offiq', 'talent_luck', 'off_move', 'off_dribble', 'shot_accuracy']
         def_power: ['ath_strength', 'ath_speed', 'ath_jump', 'shot_touch', 'shot_release', 'talent_defiq', 'talent_luck', 'def_contest', 'def_disrupt']
         
         # [Spec 3.5.C] 犯規判定
@@ -321,8 +345,8 @@ match_engine:
         trigger_off: ['off_move']                    # 進攻跑位越高，越難被封蓋
         trigger_def: ['def_contest', 'talent_defiq'] # 防守干擾越高，越容易觸發封蓋
         # 階段二: 對抗 (Power Ratio - 硬碰硬)
-        power_off: ['ath_strength', 'ath_jump', 'talent_offiq']
-        power_def: ['ath_strength', 'ath_jump', 'def_contest', 'talent_defiq']
+        power_off: ['ath_strength', 'ath_jump', 'talent_offiq', 'height']
+        power_def: ['ath_strength', 'ath_jump', 'def_contest', 'talent_defiq', 'height']
 
     # [Spec v1.4 Section 4.4] 前場抄截
     steal:
@@ -330,21 +354,25 @@ match_engine:
         base_prob: 0.01          # 基礎前場抄截率 (1%)
         stat_diff_coeff: 0.001   # 機率加成係數 (0.1%)
       formulas:
-        off_attr: ['off_dribble', 'off_handle', 'off_pass']      # 持球者的護球屬性
-        def_attr: ['ath_speed', 'def_disrupt', 'talent_defiq']   # 防守者的抄截屬性
+        off_attr: ['off_dribble', 'off_handle', 'off_pass', 'talent_offiq', '-height']      # 持球者的護球屬性
+        def_attr: ['ath_speed', 'def_disrupt', 'talent_defiq', '-height']   # 防守者的抄截屬性
 
-  # === 投籃與結算 (Shooting & Scoring) [Spec v1.4 Section 5] ===
+  # === 投籃與結算 (Shooting & Scoring) [Spec v2.1 Section 5] ===
   shooting:
     params:
       base_rate_2pt: 0.40         # [Spec 5.1] 兩分球基礎命中率 (40%) - v1.7
       base_rate_3pt: 0.20         # [Spec 5.1] 三分球基礎命中率 (20%) - v1.7
       spacing_weight: 0.1         # 空間加成係數 (公式中的 * 0.1)
       assist_prob_coeff: 0.1      # [Spec 5.5] 助攻機率係數 (公式中的 * 0.1)
+      multiplier_3pt: 2.0         # [Spec 5.2.A] 3分球特殊加成倍率
     
     formulas:
-      # [Spec 5.1] 命中率總和 (引用 attr_pools)
-      off_total: 'off_13'         # 進攻方 13 項屬性總和
-      def_total: 'def_12'         # 防守方 12 項屬性總和
+      # [Spec 5.2.A] 命中率總和 (包含 height)
+      off_total: 'off_14'         # 引用 attr_pools.off_14 (含 height)
+      def_total: 'def_12_with_height' # 引用 attr_pools.def_12_with_height
+      
+      # 3分球特殊加成屬性 (這些屬性在3分判定時會 x multiplier_3pt)
+      bonus_3pt_attrs: ['shot_accuracy', 'shot_range']
       
       # [Spec 5.2] 犯規判定 (IQ vs IQ)
       foul_off_iq: ['talent_offiq']
@@ -358,8 +386,8 @@ match_engine:
       params:
         def_base_rate: 0.10       # 防守籃板基礎優勢 (10%)
       formulas:
-        off_attr: ['talent_offiq', 'def_rebound', 'def_boxout'] # 進攻籃板屬性
-        def_attr: ['talent_defiq', 'def_rebound', 'def_boxout'] # 防守籃板屬性
+        off_attr: ['talent_offiq', 'def_rebound', 'def_boxout', 'height'] # 進攻籃板屬性
+        def_attr: ['talent_defiq', 'def_rebound', 'def_boxout', 'height'] # 防守籃板屬性
 
     # [Spec v1.4 Section 5.2 & 5.3] 罰球
     ft:

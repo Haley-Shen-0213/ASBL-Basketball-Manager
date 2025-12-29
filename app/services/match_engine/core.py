@@ -32,8 +32,10 @@ class MatchEngine:
         self.quarter_length = general_config.get('quarter_length', 720)
         self.ot_length = general_config.get('ot_length', 300)
         
-        # [新增] 讀取犯規上限參數，預設為 6
-        self.foul_limit = general_config.get('foul_limit', 6)
+        # [修正] 讀取換人相關參數 (犯規上限 & 關鍵時刻閾值)
+        sub_config = general_config.get('substitution', {})
+        self.foul_limit = sub_config.get('foul_limit', 6)
+        self.clutch_threshold = sub_config.get('clutch_time_threshold', 120.0)
         
         self.state = MatchState(time_remaining=float(self.quarter_length))
         
@@ -45,11 +47,50 @@ class MatchEngine:
 
     def _initialize_match(self):
         """賽前準備流程"""
+        # [新增] Spec v2.1 Section 1.5 賽前身高修正 (必須在體力與評分計算前執行)
+        self._apply_height_correction(self.home_team)
+        self._apply_height_correction(self.away_team)
+
         for team in [self.home_team, self.away_team]:
             self._calculate_all_positional_scores(team)
             self._determine_best_five(team)
             self._distribute_team_minutes(team)
             self._set_initial_lineup(team)
+
+    # [新增整個方法]
+    def _apply_height_correction(self, team: EngineTeam):
+        """
+        [Spec v2.1 Section 1.5] 身高屬性修正 (Initial Height Correction)
+        針對特定屬性進行基於身高的物理修正，此為永久性修正。
+        """
+        hc_config = self.config.get('match_engine', {}).get('height_correction', {})
+        bonus_h = hc_config.get('bonus_threshold', 190)
+        nerf_h = hc_config.get('nerf_threshold', 210)
+        affected_attrs = hc_config.get('affected_attrs', {})
+
+        for player in team.roster:
+            h = getattr(player, 'height', 195)
+            
+            # 計算修正倍率因子
+            # 公式: max(BONUS_H - h, min(NERF_H - h, 0))
+            factor = max(bonus_h - h, min(nerf_h - h, 0))
+            
+            if factor == 0:
+                continue
+
+            # 應用修正
+            for _, rule in affected_attrs.items():
+                keys = rule.get('keys', [])
+                coeff = rule.get('coeff', 0.0)
+                multiplier = 1.0 + (factor * coeff)
+                
+                for key in keys:
+                    original_val = getattr(player, key, 0)
+                    if original_val > 0:
+                        new_val = original_val * multiplier
+                        # 確保數值邊界
+                        new_val = max(1, min(999, new_val)) 
+                        setattr(player, key, new_val)
 
     def _calculate_all_positional_scores(self, team: EngineTeam):
         """[Spec 1.1] 計算位置評分"""
@@ -319,7 +360,7 @@ class MatchEngine:
 
     def _check_substitutions(self):
         """換人檢查"""
-        is_clutch = (self.state.quarter >= 4 and self.state.time_remaining <= 180.0)
+        is_clutch = (self.state.quarter >= 4 and self.state.time_remaining <= self.clutch_threshold)
         if is_clutch: return 
         
         for team in [self.home_team, self.away_team]:
@@ -601,23 +642,26 @@ class MatchEngine:
             player.target_seconds = player.seconds_played
             
             if remaining_seconds > 0:
-                # 找出所有合格的接收者：場上其他球員 + 板凳球員 (排除已犯滿者)
-                # 注意：此時 player 已經從 team.on_court 移除了
-                valid_recipients = [
-                    p for p in (team.on_court + team.bench)
-                    if p.fouls < self.foul_limit  # [Fix] 直接存取 fouls
-                ]
+                # [修正] Spec 2.6 邏輯: C->PF->SF->SG->PG 各取前3名，共15個 slot
+                # 排除已犯滿者
+                valid_players = [p for p in (team.on_court + team.bench) if p.fouls < self.foul_limit]
                 
-                # 計算接收者目前的總目標時間，作為分配權重
-                total_current_target = sum(p.target_seconds for p in valid_recipients)
-                
-                if total_current_target > 0:
-                    for p in valid_recipients:
-                        # 依照原本的角色權重分配時間
-                        # 原本打越久的主力，會分擔越多犯滿球員留下的時間
-                        share_ratio = p.target_seconds / total_current_target
-                        added_time = remaining_seconds * share_ratio
-                        p.target_seconds += added_time
+                if valid_players:
+                    # 找出這 15 個 slot 的歸屬者
+                    slots = []
+                    positions = ["C", "PF", "SF", "SG", "PG"]
+                    top_k = 3
+                    
+                    for pos in positions:
+                        # 該位置評分前 K 名
+                        sorted_by_pos = sorted(valid_players, key=lambda p: p.pos_scores.get(pos, 0), reverse=True)
+                        slots.extend(sorted_by_pos[:top_k])
+                    
+                    # 平均分配給這些 slot
+                    if slots:
+                        time_per_slot = remaining_seconds / len(slots)
+                        for receiver in slots:
+                            receiver.target_seconds += time_per_slot
                         
                     # 記錄日誌以便除錯
                     # self.pbp_logs.append(f"Debug: Redistributed {remaining_seconds:.1f}s among {len(valid_recipients)} players")

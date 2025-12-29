@@ -1,6 +1,7 @@
 # app/services/team_creator.py
 
 from collections import Counter
+from typing import List, Dict, Any
 from app.services.player_generator import PlayerGenerator
 from app.utils.game_config_loader import GameConfigLoader
 
@@ -8,17 +9,17 @@ class TeamCreator:
     """
     ASBL 開隊陣容生成服務 (Pure Logic Version)
     只負責生成符合規則的球員資料結構，不涉及資料庫寫入。
-    對應規格書: Player System Specification v3.2 Section 5
+    對應規格書: Player System Specification v3.3 (2025/12/28 Update)
     """
 
     @classmethod
-    def create_valid_roster(cls, max_attempts=1000):
+    def create_valid_roster(cls, max_attempts: int = 100000) -> List[Dict[str, Any]]:
         """
         [Spec 5] 生成符合檢核條件的 15 人名單
         邏輯: 
           1. 依據等級分佈生成球員
           2. [Spec 5.4] 針對每一位生成的球員進行「下限檢核」，不合格則單兵重骰
-          3. [Spec 5.2] 針對整隊進行「位置檢核」，不合格則整隊重骰
+          3. [Spec 5.2] 針對整隊進行「位置檢核」與「高階覆蓋檢核」，不合格則整隊重骰
         Returns:
             List[Dict]: 包含 15 個球員 Payload 的列表
         """
@@ -52,14 +53,14 @@ class TeamCreator:
                     )
                     roster.append(player_payload)
 
-            # 3. 執行整隊陣容檢核 (位置數量)
+            # 3. 執行整隊陣容檢核 (位置數量 + 高階覆蓋)
             if cls._validate_roster_positions(roster, val_rules):
                 return roster
         
         raise Exception(f"Failed to generate a valid team after {max_attempts} attempts. Please check config constraints.")
 
     @classmethod
-    def _generate_qualified_player(cls, grade, lower_bound, trainable_attrs, max_single_attempts=100):
+    def _generate_qualified_player(cls, grade: str, lower_bound: float, trainable_attrs: List[str], max_single_attempts: int = 50000) -> Dict[str, Any]:
         """
         [Spec 5.4] 生成並檢核單一球員是否符合開隊下限
         若生成的球員能力總和低於 lower_bound，則視為無效(太弱)，重新生成。
@@ -68,7 +69,7 @@ class TeamCreator:
             # 呼叫純粹的生成器
             payload = PlayerGenerator.generate_payload(specific_grade=grade)
             
-            # [Fix] 修正屬性讀取路徑
+            # 解析屬性來源
             # PlayerGenerator 可能將數值放在 'raw_stats' (扁平) 或 'attributes' (巢狀)
             stats_source = {}
             
@@ -96,9 +97,10 @@ class TeamCreator:
         raise Exception(f"Failed to generate a qualified player for grade {grade} (Target > {lower_bound}). Last Score: {total_score}")
 
     @staticmethod
-    def _validate_roster_positions(roster, rules):
+    def _validate_roster_positions(roster: List[Dict[str, Any]], rules: Dict[str, Any]) -> bool:
         """
         [Spec 5.2] 檢核整隊位置分佈
+        包含基礎數量檢核與高階球員位置覆蓋檢核
         """
         # 統計位置數量
         positions = [p['position'] for p in roster]
@@ -121,5 +123,22 @@ class TeamCreator:
         forward_count = counts['PF'] + counts['SF']
         if forward_count < rules.get('min_forwards', 4):
             return False
+        
+        # 5. [New v3.3] 高階位置覆蓋檢核 (High-Tier Coverage)
+        # 確保 SSR/SS/S 組合包含所有 5 個位置
+        coverage_rule = rules.get('high_tier_coverage', {})
+        if coverage_rule.get('enabled', False):
+            target_grades = set(coverage_rule.get('target_grades', []))
+            required_positions = set(coverage_rule.get('required_positions', []))
+            
+            # 篩選出高階球員
+            high_tier_positions = {
+                p['position'] for p in roster 
+                if p.get('grade') in target_grades
+            }
+            
+            # 檢查是否包含所有必要位置 (issubset: required 是否被 high_tier 包含)
+            if not required_positions.issubset(high_tier_positions):
+                return False
             
         return True
