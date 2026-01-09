@@ -497,3 +497,34 @@
 
 --
 
+## 2026-01-10 06:00 ：比賽引擎計算邏輯重構與命中率修復 (Match Engine Logic Refactor & Shooting Rate Fix)
+
+### ✅ 進度摘要
+本次更新主要針對 **Match Engine** 的代碼架構進行了深度重構，解決了核心邏輯與輔助工具 (`Calculator`) 不同步的問題。實作了 **Spec v2.2 (技巧加成)** 與 **Spec v2.3 (抄截轉換)**，並修復了重構過程中因「對抗範圍不對等」導致命中率崩跌至 10% 的嚴重 Bug。現在 `Calculator` 已成為投籃判定邏輯的唯一真理 (Single Source of Truth)。
+
+### 🛠️ 技術細節
+
+1.  **Calculator 工具升級 (`app/services/match_engine/utils/calculator.py`)**
+    - **邏輯封裝**: 將原本散落在 `core.py` 中的投籃公式（包含 2分/3分 基礎率選擇、屬性加成倍率）完整移入 `calculate_shooting_rate`。
+    - **介面更新**: 方法簽章擴充，現在接收 `off_players` (進攻全隊)、`def_players` (防守全隊) 與 `shooter` (出手者) 三種參數。
+    - **Spec v2.2 實作**: 加入 **技巧加成 (Skill Bonus)** 計算，公式為 `1 + (accuracy+range+move)/800`，針對出手者個人能力進行額外修正。
+
+2.  **比賽引擎瘦身 (`app/services/match_engine/core.py`)**
+    - **職責分離**: `_run_shooting` 不再進行數學運算，僅負責流程控制（如決定是否投三分、是否犯規），計算工作全數委派給 `Calculator`。
+    - **Spec v2.3 實作**: 在後場階段 (`_run_backcourt`) 加入了 **抄截轉換 (Steal Transition)** 判定。當發生抄截時，依據雙方速度總和判定是發動快攻還是進入陣地戰。
+
+3.  **關鍵 Bug 修復 (Critical Fix)**
+    - **問題**: 初次重構時，誤將 `off_player` (單人) 傳入對抗公式與 `def_players` (五人) 進行數值比較。
+    - **現象**: 進攻方數值遠低於防守方，導致 `stat_diff` 為負值，命中率被截斷在下限 (1%~10%)。
+    - **修正**: 修正 `Calculator` 介面，明確區分 **「團隊對抗 (Team Rating)」** 與 **「個人技巧 (Skill Bonus)」** 的計算來源，命中率回歸正常區間 (30%~50%)。
+
+### 📝 筆記
+- **架構效益**: 這次重構雖然花費了時間解決 Bug，但大幅提升了代碼的可測試性。未來若要調整命中率公式（例如修改 Spacing 權重），只需修改 `Calculator` 一處即可，不用擔心 `Core` 與 UI 顯示的數值不一致。
+- **數值觀察**: 加入 Skill Bonus 後，高數值射手 (SSR) 的統治力進一步提升，符合設計預期。
+
+### 🔜 下一步計畫
+- **Pace 機制調整**: 修改速度屬性 (Speed) 對於比賽回合數 (Possessions/Pace) 的影響權重，讓快節奏球隊能打出更多回合。
+- **隊伍平衡測試**: 執行大規模模擬，驗證不同戰術風格（如快攻隊 vs 陣地戰隊）的勝率平衡。
+
+--
+

@@ -354,15 +354,43 @@ class MatchEngine:
             
             is_opening = False
         
+        # 讀取時間設定
+        gen_config = self.config.get('match_engine', {}).get('general', {})
+        halftime_min = gen_config.get('stamina_recovery_halftime', 20.0)
+        quarter_break_min = gen_config.get('stamina_recovery_quarter', 2.0)
+        
         if self.state.quarter == 2:
-            StaminaSystem.apply_halftime_recovery(self.home_team.roster, self.config)
-            StaminaSystem.apply_halftime_recovery(self.away_team.roster, self.config)
+            # 中場休息 (Q2 結束)
+            self.pbp_logs.append(f"=== Halftime Break ({halftime_min} mins) ===")
+            StaminaSystem.apply_rest(self.home_team.roster, halftime_min, self.config)
+            StaminaSystem.apply_rest(self.away_team.roster, halftime_min, self.config)
+            
+        elif self.state.quarter in [1, 3]:
+            # 節間休息 (Q1, Q3 結束)
+            self.pbp_logs.append(f"=== Quarter Break ({quarter_break_min} mins) ===")
+            StaminaSystem.apply_rest(self.home_team.roster, quarter_break_min, self.config)
+            StaminaSystem.apply_rest(self.away_team.roster, quarter_break_min, self.config)
+
+        # 3. 延長賽前休息 (Q4 結束平手, 或 OT 結束平手)
+        # 邏輯: 若現在是 Q4 或 OT (Q>=4)，且分數平手，代表即將進入下一節，需要休息
+        elif self.state.quarter >= 4 and self.home_team.score == self.away_team.score:
+            self.pbp_logs.append(f"=== Overtime Break ({quarter_break_min} mins) ===")
+            StaminaSystem.apply_rest(self.home_team.roster, quarter_break_min, self.config)
+            StaminaSystem.apply_rest(self.away_team.roster, quarter_break_min, self.config)
 
     def _check_substitutions(self):
         """換人檢查"""
+        # 判斷是否為關鍵時刻 (Q4 或 OT 的最後 2 分鐘)
         is_clutch = (self.state.quarter >= 4 and self.state.time_remaining <= self.clutch_threshold)
-        if is_clutch: return 
         
+        if is_clutch:
+            #  關鍵時刻：強制執行 Best 5 調度
+            for team in [self.home_team, self.away_team]:
+                logs = SubstitutionSystem.enforce_best_lineup(team, self.config)
+                self.pbp_logs.extend(logs)
+            return # 執行完強制調度後，依然不進行常規體力檢查
+        
+        # 非關鍵時刻：執行常規換人檢查 (體力/時間)
         for team in [self.home_team, self.away_team]:
             logs = SubstitutionSystem.check_auto_substitution(
                 team, self.state.quarter, self.state.time_remaining, self.config
@@ -370,26 +398,109 @@ class MatchEngine:
             self.pbp_logs.extend(logs)
 
     def _simulate_possession(self, is_opening: bool) -> Tuple[float, str, bool]:
+        """
+        單一回合模擬
+        更新 v2.4: 支援後場抄截後的「即時攻守交換」(Instant Transition)
+        """
+        # 1. 確定初始攻守方
         if self.state.possession == self.home_team.id:
             off_team, def_team = self.home_team, self.away_team
         else:
             off_team, def_team = self.away_team, self.home_team
 
-        # 1. Backcourt
+        # ============================================================
+        # Phase 1: Backcourt (後場)
+        # ============================================================
         elapsed_bc, res, desc = self._run_backcourt(off_team, def_team, is_opening)
-        if res != 'frontcourt': return elapsed_bc, desc, False
+        
+        # [Case A] 正常推進 -> 進入前場
+        if res == 'frontcourt':
+            pass # 繼續執行 Phase 2
 
-        # 2. Frontcourt
+        # [Case B] 普通失誤 (8秒/出界) -> 結束回合
+        elif res == 'turnover':
+            return elapsed_bc, desc, False
+
+        # [Case C] 抄截後的轉換 (Steal Transition) [New v2.4]
+        elif res in ['steal_fastbreak', 'steal_frontcourt']:
+            # 這裡發生了「回合內攻守交換」
+            # 原防守方 (def_team) 變成了 進攻方
+            # 原進攻方 (off_team) 變成了 防守方
+            # 1. 記錄防守方(現在的進攻方)的球權 (因為他們發動了快攻/反擊)
+            AttributionSystem.record_possession(def_team)
+            
+            # 2. 處理快攻分支
+            if res == 'steal_fastbreak':
+                # 執行快攻 (注意參數順序互換)
+                elapsed_fb, fb_res, fb_desc = self._run_fastbreak(def_team, off_team, elapsed_bc)
+                
+                # 處理回傳的 keep 邏輯 (反轉)
+                # 若快攻進球(keep=False)，我們希望下一回合球權給原進攻方(A)，而當前possession是A
+                # 外層迴圈邏輯: if not keep: switch.
+                # 若我們回傳 False -> switch -> 變 B 球權 (錯)
+                # 若我們回傳 True -> no switch -> 變 A 球權 (對)
+                # 結論: 抄截反擊的結果需要 invert keep
+                
+                # 特殊情況: 快攻失敗(被蓋/籃板)，回傳的是 turnover 嗎?
+                # _run_fastbreak 回傳: ('score', desc) 或 ('turnover', desc)
+                # 這裡的 turnover 代表防守成功(原攻方拿回球權/籃板)，相當於 keep=False (B沒拿到球)
+                # 所以邏輯一致，直接回傳 True 即可讓 A 拿回球權?
+                # 等等，_run_fastbreak 沒有回傳 keep，它回傳 (elapsed, type, desc)
+                
+                # 讓我們看 _run_fastbreak 的實作:
+                # 進球 -> record_score -> return 'score'
+                # 失敗 -> record_rebound(chaser) -> return 'turnover'
+                
+                if fb_res == 'score':
+                    # 因為回傳 keep=True，主迴圈會誤以為是進攻籃板而不計數
+                    # 所以這裡預先幫 off_team 記錄下一次的球權
+                    AttributionSystem.record_possession(off_team)
+                    return elapsed_fb, fb_desc, True # A 拿回球權
+                else:
+                    # 同上，off_team 獲得防守籃板，視為新回合開始
+                    AttributionSystem.record_possession(off_team)
+                    # 快攻失敗 (被 A 守住/抓板) -> A 拿回球權
+                    return elapsed_fb, fb_desc, True
+
+            # 3. 處理直接前場分支 (Skip Backcourt)
+            elif res == 'steal_frontcourt':
+                # 直接進入前場階段 (注意參數順序互換)
+                # 時間繼承: 已經過了 elapsed_bc 秒
+                elapsed_fc, fc_res, fc_desc, ctx = self._run_frontcourt(def_team, off_team, elapsed_bc)
+                
+                if fc_res == 'shooting':
+                    shoot_desc, shoot_keep = self._run_shooting(def_team, off_team, ctx)
+                    # 這裡 shoot_keep 是針對 def_team (現在的進攻方) 而言
+                    # 如果 B 搶到進攻籃板 (True) -> 下一回合 B 繼續攻 -> possession 需切換為 B -> return False
+                    # 如果 B 進球/被抓板 (False) -> 下一回合 A 攻 -> possession 維持 A -> return True
+                    return elapsed_bc + elapsed_fc, shoot_desc, not shoot_keep
+                else:
+                    # 前場失誤 (def_team 失誤) -> off_team 拿回球權
+                    # 手動補 off_team 球權
+                    AttributionSystem.record_possession(off_team) # <--- 新增這行
+                    # 前場失誤 (B 失誤) -> A 拿回球權
+                    return elapsed_bc + elapsed_fc, fc_desc, True
+
+        # ============================================================
+        # Phase 2: Frontcourt (前場)
+        # ============================================================
         elapsed_fc, res, desc, ctx = self._run_frontcourt(off_team, def_team, elapsed_bc)
         total_elapsed = elapsed_bc + elapsed_fc
-        if res != 'shooting': return total_elapsed, desc, False
+        
+        if res != 'shooting': 
+            return total_elapsed, desc, False
 
-        # 3. Shooting
+        # ============================================================
+        # Phase 3: Shooting (投籃)
+        # ============================================================
         desc_shoot, keep = self._run_shooting(off_team, def_team, ctx)
         return total_elapsed, desc_shoot, keep
 
     def _run_backcourt(self, off_team: EngineTeam, def_team: EngineTeam, is_opening: bool):
-        """(Spec 3) 後場"""
+        """
+        (Spec 3) 後場階段
+        更新 v2.3: 實作速度總和判定的攻守轉換
+        """
         bc_config = self.config.get('match_engine', {}).get('backcourt', {})
         params = bc_config.get('params', {})
         formulas = bc_config.get('formulas', {})
@@ -410,13 +521,38 @@ class MatchEngine:
             AttributionSystem.record_team_turnover(off_team)
             return final_time, 'turnover', f"{off_team.name} 8-sec Violation"
         
+        # [Modified] 抄截判定
         if final_time > params.get('steal_threshold', 3.0):
             prob = params.get('steal_base_prob', 0.01) + (def_sum - off_sum) * params.get('steal_bonus_coeff', 0.001)
+            
             if rng.decision(prob):
                 stealer = AttributionSystem.determine_stealer(def_team, self.config)
                 AttributionSystem.record_steal(stealer, off_team)
-                return final_time, 'turnover', f"{def_team.name} {stealer.name} Backcourt Steal"
-        
+                
+                # [New v2.4] 攻守轉換判定 (Transition Decision)
+                # 1. 計算雙方全隊速度總和
+                spd_formula = formulas.get('team_speed_sum', ['ath_speed'])
+                off_spd_sum = Calculator.get_team_attr_sum(off_team.on_court, spd_formula, attr_pools)
+                def_spd_sum = Calculator.get_team_attr_sum(def_team.on_court, spd_formula, attr_pools)
+                
+                # 2. 計算轉換機率
+                # 公式: 50% + (守方總和 - 攻方總和) / 攻方總和
+                base_prob = params.get('transition_base_prob', 0.50)
+                ratio = 0.0
+                if off_spd_sum > 0:
+                    ratio = (def_spd_sum - off_spd_sum) / off_spd_sum
+                
+                transition_prob = base_prob + ratio
+                
+                # 3. 判定分支
+                if rng.decision(transition_prob):
+                    # 觸發快攻
+                    return final_time, 'steal_fastbreak', f"{def_team.name} Steal & Fastbreak"
+                else:
+                    # 觸發陣地戰 (直接進前場)
+                    return final_time, 'steal_frontcourt', f"{def_team.name} Steal & Transition"
+
+        # [修正縮排] 快攻判定應與上方的抄截判定同層級
         if final_time < params.get('fastbreak_threshold', 1.0):
             return self._run_fastbreak(off_team, def_team, final_time)
         
@@ -506,25 +642,30 @@ class MatchEngine:
         formulas = sht_config.get('formulas', {})
         attr_pools = self.config.get('match_engine', {}).get('attr_pools', {})
 
-        # 1. Type
+        # 1. Type (決定是 2分 或 3分)
+        # 這部分涉及隨機判定，保留在 Core 中
         range_sum = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('range_attr', []), attr_pools), attr_pools) or 1
         threshold = 1.0 / (range_sum / 100.0)
         is_3pt = rng.get_float(0.0, 1.0) > threshold
         points = 3 if is_3pt else 2
-        base_rate = params.get('base_rate_3pt', 0.20) if is_3pt else params.get('base_rate_2pt', 0.40)
 
-        # 2. Shooter
+        # 2. Shooter (決定出手者)
         shooter = AttributionSystem.determine_shooter(off_team, is_3pt, self.config)
 
-        # 3. Hit Rate
-        off_total = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('off_total', []), attr_pools), attr_pools)
-        def_total = Calculator.get_team_attr_sum(def_team.on_court, self._resolve_formula(formulas.get('def_total', []), attr_pools), attr_pools) or 1
+        # 3. Hit Rate (命中率計算) - [Refactored] 完全呼叫 Calculator
+        hit_rate = Calculator.calculate_shooting_rate(
+          off_players=off_team.on_court,  # 進攻全隊 (用於對抗)
+          def_players=def_team.on_court,  # 防守全隊 (用於對抗)
+          shooter=shooter,                # 出手者 (用於技巧加成)
+          config=self.config,
+          spacing_factor=ctx.get('spacing', 0.0),
+          quality_bonus=ctx.get('quality', 0.0),
+          is_3pt=is_3pt
+        )
         
-        stat_diff = (off_total - def_total) / def_total
-        hit_rate = (base_rate + stat_diff) * (1 + ctx.get('spacing', 0)*0.1) * (1 + ctx.get('quality', 0))
         is_hit = rng.decision(hit_rate)
 
-        # 4. Foul
+        # 4. Foul (犯規判定)
         off_iq = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('foul_off_iq', []), attr_pools), attr_pools)
         def_iq = Calculator.get_team_attr_sum(def_team.on_court, self._resolve_formula(formulas.get('foul_def_iq', []), attr_pools), attr_pools) or 1
         foul_prob = max(0.01, (off_iq - def_iq) / def_iq)
@@ -615,7 +756,7 @@ class MatchEngine:
         return made
     def _check_and_handle_foul_out(self, team: EngineTeam, player: EnginePlayer):
         """
-        [Fix] 檢查並處理犯滿離場
+         檢查並處理犯滿離場
         邏輯：
         1. 若犯規數達標，強制從 on_court 移除。
         2. 將該球員剩餘的 target_seconds 按比例分配給其他未犯滿球員。
@@ -626,6 +767,7 @@ class MatchEngine:
         current_fouls = player.fouls
         
         if current_fouls >= self.foul_limit:
+            player.is_fouled_out = True 
             self.pbp_logs.append(f"{team.name} {player.name} Fouled Out ({current_fouls})")
             
             # 1. 從場上移除
@@ -644,7 +786,7 @@ class MatchEngine:
             if remaining_seconds > 0:
                 # [修正] Spec 2.6 邏輯: C->PF->SF->SG->PG 各取前3名，共15個 slot
                 # 排除已犯滿者
-                valid_players = [p for p in (team.on_court + team.bench) if p.fouls < self.foul_limit]
+                valid_players = [p for p in (team.on_court + team.bench) if not p.is_fouled_out]
                 
                 if valid_players:
                     # 找出這 15 個 slot 的歸屬者
@@ -670,7 +812,7 @@ class MatchEngine:
             # 2. 尋找替補 (排除同樣犯滿的球員)
             candidates = [
                 p for p in team.bench 
-                if p.fouls < self.foul_limit  # [Fix] 直接存取 fouls
+                if not p.is_fouled_out
             ]
             
             if not candidates:

@@ -1,6 +1,6 @@
 # app/services/match_engine/utils/calculator.py
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from ..structures import EnginePlayer
 
 class Calculator:
@@ -10,7 +10,16 @@ class Calculator:
     1. 移除 Python 內寫死的 ALL_ATTRIBUTE_NAMES。
     2. 支援遞迴解析 attr_pools，實現真正的 Config Driven。
     3. 投籃公式正確讀取 spacing_weight。
+    4. 同步 Spec v2.2 技巧加成 (Skill Bonus) 邏輯。
+    5. calculate_shooting_rate 支援 3分球特殊邏輯 (Multiplier & Base Rate)。
     """
+
+    @staticmethod
+    def _resolve_formula_keys(formula: Union[str, List[str]], attr_pools: Dict) -> List[str]:
+        """Helper: 解析 Config 中的屬性列表引用"""
+        if isinstance(formula, str):
+            return attr_pools.get(formula, [])
+        return formula
 
     @staticmethod
     def get_player_attr_sum(player: EnginePlayer, attrs: List[str], attr_pools: Optional[Dict[str, List[str]]] = None) -> float:
@@ -56,10 +65,6 @@ class Calculator:
                     total -= sub_total
                 else:
                     total += sub_total
-            
-            # 3. 既非屬性也非 Pool，視為 0 (或可選擇噴錯)
-            else:
-                pass 
         
         return total
 
@@ -69,34 +74,20 @@ class Calculator:
         return sum(Calculator.get_player_attr_sum(p, attrs, attr_pools) for p in players)
 
     @staticmethod
-    def resolve_diff_formula(
-        off_val: float, 
-        def_val: float, 
-        base: float, 
-        coeff: float,
-        min_limit: float = 0.0,
-        max_limit: float = 1.0
-    ) -> float:
-        """通用差值公式: Base + (Off - Def) * Coeff"""
-        prob = base + (off_val - def_val) * coeff
-        return max(min_limit, min(max_limit, prob))
-
-    @staticmethod
-    def resolve_ratio_formula(off_val: float, def_val: float) -> float:
-        """通用比率公式: Off / Def"""
-        if def_val == 0: return 999.0 
-        return off_val / def_val
-
-    @staticmethod
     def calculate_shooting_rate(
-        off_player: EnginePlayer,
+        off_players: List[EnginePlayer], # [Fix] 改為傳入進攻全隊
         def_players: List[EnginePlayer],
+        shooter: EnginePlayer,           # [Fix] 新增參數：出手者 (用於技巧加成)
         config: Dict,
         spacing_factor: float = 0.0,
-        quality_bonus: float = 0.0
+        quality_bonus: float = 0.0,
+        is_3pt: bool = False
     ) -> float:
         """
-        [Spec 5.1] 投籃命中率計算
+        [Spec 5.1 & 5.2] 投籃命中率計算 (修正版)
+        邏輯:
+          - 對抗 (Off_Total vs Def_Total): 使用 Team Sum vs Team Sum
+          - 技巧 (Skill Bonus): 使用 Shooter Individual Stats
         """
         # 1. 導航 Config
         me_config = config.get('match_engine', {})
@@ -105,29 +96,35 @@ class Calculator:
         params = shooting_config.get('params', {})
         attr_pools = me_config.get('attr_pools', {})
 
-        # 2. 取得 Key
-        off_key = formulas.get('off_total', 'off_13')
-        def_key = formulas.get('def_total', 'def_12')
-        
-        # 3. 取得列表 (這裡直接傳 key 給 get_player_attr_sum 也可以，但為了明確性先取出來)
-        # 修正邏輯: 因為現在支援遞迴，我們其實可以直接傳 [off_key] 進去，
-        # 但為了保險起見，還是先嘗試從 attr_pools 拿，拿不到就當作 list
-        off_attrs = attr_pools.get(off_key, [off_key])
-        def_attrs = attr_pools.get(def_key, [def_key])
+        # 2. 決定基礎命中率 (Base Rate)
+        base_rate = params.get('base_rate_3pt', 0.20) if is_3pt else params.get('base_rate_2pt', 0.40)
 
-        # 4. 計算數值 (傳入 attr_pools 以支援遞迴)
-        off_sum = Calculator.get_player_attr_sum(off_player, off_attrs, attr_pools)
-        def_sum = Calculator.get_team_attr_sum(def_players, def_attrs, attr_pools)
+        # 3. 計算進攻總值 (Offensive Rating) - [Fix] 使用 get_team_attr_sum
+        base_off_keys = Calculator._resolve_formula_keys(formulas.get('off_total', 'off_13'), attr_pools)
+        off_sum = Calculator.get_team_attr_sum(off_players, base_off_keys, attr_pools)
 
-        # 5. 參數應用
-        base_rate = params.get('base_rate', 0.40)
+        if is_3pt:
+            # [Spec 5.2.A] 3分球特殊加成 (也是看團隊)
+            bonus_keys = Calculator._resolve_formula_keys(formulas.get('bonus_3pt_attrs', []), attr_pools)
+            bonus_sum = Calculator.get_team_attr_sum(off_players, bonus_keys, attr_pools)
+            mult = params.get('multiplier_3pt', 2.0)
+            off_sum += bonus_sum * (mult - 1.0)
+
+        # 4. 計算防守總值 (Defensive Rating)
+        def_keys = Calculator._resolve_formula_keys(formulas.get('def_total', 'def_12'), attr_pools)
+        def_sum = Calculator.get_team_attr_sum(def_players, def_keys, attr_pools)
+        if def_sum == 0: def_sum = 1
+
+        # 5. 計算技巧加成 (Skill Bonus) - [Fix] 針對 shooter 個人計算
+        skill_keys = Calculator._resolve_formula_keys(formulas.get('skill_bonus_attrs', ['shot_accuracy', 'shot_range', 'off_move']), attr_pools)
+        skill_sum = Calculator.get_player_attr_sum(shooter, skill_keys, attr_pools)
+        skill_divisor = params.get('skill_bonus_divisor', 800.0)
+        skill_multiplier = 1.0 + (skill_sum / skill_divisor)
+
+        # 6. 最終公式計算
+        stat_diff = (off_sum - def_sum) / def_sum
         spacing_weight = params.get('spacing_weight', 0.1)
         
-        if def_sum == 0: def_sum = 1
-        
-        # 6. 公式計算
-        raw_rate = base_rate + (off_sum - def_sum) / def_sum
-        final_spacing_mult = 1.0 + (spacing_factor * spacing_weight)
-        final_rate = raw_rate * final_spacing_mult * (1.0 + quality_bonus)
+        final_rate = (base_rate + stat_diff) * skill_multiplier * (1.0 + spacing_factor * spacing_weight) * (1.0 + quality_bonus)
         
         return max(0.01, min(0.99, final_rate))

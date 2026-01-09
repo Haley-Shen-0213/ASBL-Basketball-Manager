@@ -287,9 +287,12 @@ match_engine:
       time_coeff: 0.008          # 時間修正係數: (防守總值 - 進攻總值) * 0.008
       violation_threshold: 8.0   # 超過此秒數 -> 8秒違例 (失誤)
       steal_threshold: 3.0       # 超過此秒數 -> 觸發後場抄截判定
-      fastbreak_threshold: 1.0   # 低於此秒數 -> 觸發快攻判定
+      fastbreak_threshold: 1.5   # 低於此秒數 -> 觸發快攻判定
       steal_base_prob: 0.01      # 後場抄截基礎機率 (1%)
       steal_bonus_coeff: 0.001   # 抄截機率加成: (防守差值) * 0.1%
+      
+      # [v2.3] 抄截轉換設定
+      transition_base_prob: 0.50   # 基礎機率 50%
 
     formulas:
       # [Spec 3.1] 屬性池 (增加身高懲罰)
@@ -298,6 +301,8 @@ match_engine:
       # [Spec 3.4] 抄截判定 (Def - Off)
       steal_off: ['off_dribble', 'off_pass', 'talent_offiq', '-height']     # 被抄截者的抵抗屬性
       steal_def: ['def_disrupt', 'def_contest', 'talent_defiq', '-height']  # 抄截者的攻擊屬性
+      # [v2.3] 轉換判定用的速度總和 (全隊)
+      team_speed_sum: ['ath_speed']
 
     # [Spec v1.4 Section 3.5] 快攻判定
     fastbreak:
@@ -364,15 +369,23 @@ match_engine:
       base_rate_3pt: 0.20         # [Spec 5.1] 三分球基礎命中率 (20%) - v1.7
       spacing_weight: 0.1         # 空間加成係數 (公式中的 * 0.1)
       assist_prob_coeff: 0.1      # [Spec 5.5] 助攻機率係數 (公式中的 * 0.1)
-      multiplier_3pt: 2.0         # [Spec 5.2.A] 3分球特殊加成倍率
+      multiplier_3pt: 1.2         # [Spec 5.2.A] 3分球特殊加成倍率
+      
+      # [New] 技巧加成參數
+      # 公式: * (1 + (屬性總和 / divisor))
+      skill_bonus_divisor: 800.0 
     
     formulas:
       # [Spec 5.2.A] 命中率總和 (包含 height)
       off_total: 'off_14'         # 引用 attr_pools.off_14 (含 height)
       def_total: 'def_12_with_height' # 引用 attr_pools.def_12_with_height
       
+      # [New] 技巧加成屬性池
+      # 定義哪些屬性會影響基礎命中率的額外加成
+      skill_bonus_attrs: ['shot_accuracy', 'shot_range', 'off_move']
+      
       # 3分球特殊加成屬性 (這些屬性在3分判定時會 x multiplier_3pt)
-      bonus_3pt_attrs: ['shot_accuracy', 'shot_range']
+      bonus_3pt_attrs: ['shot_accuracy', 'shot_range', 'off_move']
       
       # [Spec 5.2] 犯規判定 (IQ vs IQ)
       foul_off_iq: ['talent_offiq']
