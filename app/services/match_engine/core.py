@@ -19,6 +19,10 @@ class MatchEngine:
     - 整合 Pace 計算 (Record Possession)。
     - 整合快攻效率統計 (Record Fastbreak)。
     - 輸出包含進階數據的 MatchResult。
+    
+    [Update 2026-01-16]
+    - 新增: 正負值 (+/-) 統計
+    - 新增: 回合時間 (Possession Time) 記錄
     """
 
     def __init__(self, home_team: EngineTeam, away_team: EngineTeam, config: Dict, game_id: str = "SIM_GAME"):
@@ -277,7 +281,12 @@ class MatchEngine:
             home_fb_made=self.home_team.stat_fb_made,
             home_fb_attempt=self.home_team.stat_fb_attempt,
             away_fb_made=self.away_team.stat_fb_made,
-            away_fb_attempt=self.away_team.stat_fb_attempt
+            away_fb_attempt=self.away_team.stat_fb_attempt,
+            # [New] 回合時間統計與平均值計算
+            home_possession_history=self.home_team.stat_possession_history,
+            away_possession_history=self.away_team.stat_possession_history,
+            home_avg_seconds_per_poss=(self.home_team.stat_possession_seconds / self.home_team.stat_possessions) if self.home_team.stat_possessions > 0 else 0.0,
+            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0
         )
 
     def _jump_ball(self) -> str:
@@ -318,9 +327,9 @@ class MatchEngine:
             
             # 1. 確定當前進攻方
             if self.state.possession == self.home_team.id:
-                off_team = self.home_team
+                off_team, def_team = self.home_team, self.away_team
             else:
-                off_team = self.away_team
+                off_team, def_team = self.away_team, self.home_team
             
             # 2. 若是新球權，記錄之 (Pace Calculation)
             if is_new_possession:
@@ -329,6 +338,10 @@ class MatchEngine:
 
             # 3. 執行回合
             elapsed, desc, keep = self._simulate_possession(is_opening)
+            
+            # [New] 記錄回合消耗時間
+            # 將該次進攻所花費的時間，歸屬給進攻方
+            AttributionSystem.record_possession_time(off_team, elapsed)
             
             self.state.time_remaining -= elapsed
             self.state.game_time_elapsed += elapsed
@@ -432,6 +445,7 @@ class MatchEngine:
             # 2. 處理快攻分支
             if res == 'steal_fastbreak':
                 # 執行快攻 (注意參數順序互換)
+                # [Update] 傳入 def_team 以計算 +/- (因為 def_team 現在是進攻方)
                 elapsed_fb, fb_res, fb_desc = self._run_fastbreak(def_team, off_team, elapsed_bc)
                 
                 # 處理回傳的 keep 邏輯 (反轉)
@@ -628,6 +642,8 @@ class MatchEngine:
         
         if is_success:
             AttributionSystem.record_score(off_team, runner, 2, False)
+            # [New] 更新 +/-
+            AttributionSystem.update_plus_minus(off_team, def_team, 2)
             return elapsed, 'score', f"{off_team.name} {runner.name} Fastbreak Score"
         else:
             AttributionSystem.record_rebound(chaser, False)
@@ -676,6 +692,9 @@ class MatchEngine:
 
         if is_hit:
             AttributionSystem.record_score(off_team, shooter, points, is_3pt)
+            # [New] 更新 +/-
+            AttributionSystem.update_plus_minus(off_team, def_team, points)
+            
             log = f"{off_team.name} {shooter.name} {points}pt Good"
             
             # Assist
@@ -695,7 +714,8 @@ class MatchEngine:
             if is_foul:
                 fouler = rng.choice(def_team.on_court)
                 AttributionSystem.record_foul(fouler)
-                self._run_free_throw(off_team, shooter, 1)
+                # [Update] 傳入 def_team 以計算 +/-
+                self._run_free_throw(off_team, def_team, shooter, 1)
                 log += " (And-1)"
                 # [新增] 檢查是否犯滿離場
                 self._check_and_handle_foul_out(def_team, fouler)
@@ -707,7 +727,8 @@ class MatchEngine:
                 fouler = rng.choice(def_team.on_court)
                 AttributionSystem.record_foul(fouler)
                 ft_count = 3 if is_3pt else 2
-                made = self._run_free_throw(off_team, shooter, ft_count)
+                # [Update] 傳入 def_team 以計算 +/-
+                made = self._run_free_throw(off_team, def_team, shooter, ft_count)
                 log += f" (Foul {made}/{ft_count})"
                 # [新增] 檢查是否犯滿離場
                 self._check_and_handle_foul_out(def_team, fouler)
@@ -734,7 +755,10 @@ class MatchEngine:
 
         return log, keep
 
-    def _run_free_throw(self, team: EngineTeam, shooter: EnginePlayer, count: int) -> int:
+    def _run_free_throw(self, team: EngineTeam, def_team: EngineTeam, shooter: EnginePlayer, count: int) -> int:
+        """
+        [Update] 新增 def_team 參數以支援 +/- 計算
+        """
         made = 0
         ft_config = self.config.get('match_engine', {}).get('shooting', {}).get('ft', {})
         params = ft_config.get('params', {})
@@ -750,6 +774,8 @@ class MatchEngine:
         for _ in range(count):
             if rng.decision(prob):
                 AttributionSystem.record_free_throw(team, shooter, True)
+                # [New] 更新 +/-
+                AttributionSystem.update_plus_minus(team, def_team, 1)
                 made += 1
             else:
                 AttributionSystem.record_free_throw(team, shooter, False)

@@ -1970,6 +1970,10 @@ class MatchEngine:
     - 整合 Pace 計算 (Record Possession)。
     - 整合快攻效率統計 (Record Fastbreak)。
     - 輸出包含進階數據的 MatchResult。
+    
+    [Update 2026-01-16]
+    - 新增: 正負值 (+/-) 統計
+    - 新增: 回合時間 (Possession Time) 記錄
     """
 
     def __init__(self, home_team: EngineTeam, away_team: EngineTeam, config: Dict, game_id: str = "SIM_GAME"):
@@ -2228,7 +2232,12 @@ class MatchEngine:
             home_fb_made=self.home_team.stat_fb_made,
             home_fb_attempt=self.home_team.stat_fb_attempt,
             away_fb_made=self.away_team.stat_fb_made,
-            away_fb_attempt=self.away_team.stat_fb_attempt
+            away_fb_attempt=self.away_team.stat_fb_attempt,
+            # [New] 回合時間統計與平均值計算
+            home_possession_history=self.home_team.stat_possession_history,
+            away_possession_history=self.away_team.stat_possession_history,
+            home_avg_seconds_per_poss=(self.home_team.stat_possession_seconds / self.home_team.stat_possessions) if self.home_team.stat_possessions > 0 else 0.0,
+            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0
         )
 
     def _jump_ball(self) -> str:
@@ -2269,9 +2278,9 @@ class MatchEngine:
             
             # 1. 確定當前進攻方
             if self.state.possession == self.home_team.id:
-                off_team = self.home_team
+                off_team, def_team = self.home_team, self.away_team
             else:
-                off_team = self.away_team
+                off_team, def_team = self.away_team, self.home_team
             
             # 2. 若是新球權，記錄之 (Pace Calculation)
             if is_new_possession:
@@ -2280,6 +2289,10 @@ class MatchEngine:
 
             # 3. 執行回合
             elapsed, desc, keep = self._simulate_possession(is_opening)
+            
+            # [New] 記錄回合消耗時間
+            # 將該次進攻所花費的時間，歸屬給進攻方
+            AttributionSystem.record_possession_time(off_team, elapsed)
             
             self.state.time_remaining -= elapsed
             self.state.game_time_elapsed += elapsed
@@ -2383,6 +2396,7 @@ class MatchEngine:
             # 2. 處理快攻分支
             if res == 'steal_fastbreak':
                 # 執行快攻 (注意參數順序互換)
+                # [Update] 傳入 def_team 以計算 +/- (因為 def_team 現在是進攻方)
                 elapsed_fb, fb_res, fb_desc = self._run_fastbreak(def_team, off_team, elapsed_bc)
                 
                 # 處理回傳的 keep 邏輯 (反轉)
@@ -2579,6 +2593,8 @@ class MatchEngine:
         
         if is_success:
             AttributionSystem.record_score(off_team, runner, 2, False)
+            # [New] 更新 +/-
+            AttributionSystem.update_plus_minus(off_team, def_team, 2)
             return elapsed, 'score', f"{off_team.name} {runner.name} Fastbreak Score"
         else:
             AttributionSystem.record_rebound(chaser, False)
@@ -2627,6 +2643,9 @@ class MatchEngine:
 
         if is_hit:
             AttributionSystem.record_score(off_team, shooter, points, is_3pt)
+            # [New] 更新 +/-
+            AttributionSystem.update_plus_minus(off_team, def_team, points)
+            
             log = f"{off_team.name} {shooter.name} {points}pt Good"
             
             # Assist
@@ -2646,7 +2665,8 @@ class MatchEngine:
             if is_foul:
                 fouler = rng.choice(def_team.on_court)
                 AttributionSystem.record_foul(fouler)
-                self._run_free_throw(off_team, shooter, 1)
+                # [Update] 傳入 def_team 以計算 +/-
+                self._run_free_throw(off_team, def_team, shooter, 1)
                 log += " (And-1)"
                 # [新增] 檢查是否犯滿離場
                 self._check_and_handle_foul_out(def_team, fouler)
@@ -2658,7 +2678,8 @@ class MatchEngine:
                 fouler = rng.choice(def_team.on_court)
                 AttributionSystem.record_foul(fouler)
                 ft_count = 3 if is_3pt else 2
-                made = self._run_free_throw(off_team, shooter, ft_count)
+                # [Update] 傳入 def_team 以計算 +/-
+                made = self._run_free_throw(off_team, def_team, shooter, ft_count)
                 log += f" (Foul {made}/{ft_count})"
                 # [新增] 檢查是否犯滿離場
                 self._check_and_handle_foul_out(def_team, fouler)
@@ -2685,7 +2706,10 @@ class MatchEngine:
 
         return log, keep
 
-    def _run_free_throw(self, team: EngineTeam, shooter: EnginePlayer, count: int) -> int:
+    def _run_free_throw(self, team: EngineTeam, def_team: EngineTeam, shooter: EnginePlayer, count: int) -> int:
+        """
+        [Update] 新增 def_team 參數以支援 +/- 計算
+        """
         made = 0
         ft_config = self.config.get('match_engine', {}).get('shooting', {}).get('ft', {})
         params = ft_config.get('params', {})
@@ -2701,6 +2725,8 @@ class MatchEngine:
         for _ in range(count):
             if rng.decision(prob):
                 AttributionSystem.record_free_throw(team, shooter, True)
+                # [New] 更新 +/-
+                AttributionSystem.update_plus_minus(team, def_team, 1)
                 made += 1
             else:
                 AttributionSystem.record_free_throw(team, shooter, False)
@@ -2884,6 +2910,7 @@ class EnginePlayer:
     stat_blk: int = 0   # 阻攻
     stat_tov: int = 0   # 個人失誤
     fouls: int = 0      # 犯規次數
+    stat_plus_minus: int = 0 # 正負值 (+/-)
     
     # 投籃細項
     stat_fgm: int = 0   # 投籃命中 (含2分與3分)
@@ -2926,6 +2953,8 @@ class EngineTeam:
     
     # [Phase 2 新增] 進階團隊數據
     stat_possessions: int = 0 # 回合數 (用於計算 Pace)
+    stat_possession_seconds: float = 0.0 # 累積進攻時間 (秒)
+    stat_possession_history: List[float] = field(default_factory=list) # 記錄每一回合的時間 (List)
     stat_fb_made: int = 0     # 團隊快攻進球
     stat_fb_attempt: int = 0  # 團隊快攻嘗試
 
@@ -2960,6 +2989,13 @@ class MatchResult:
     pace: float = 0.0           # 節奏 (Possessions per 48 min)
     home_possessions: int = 0   # 主隊總回合數
     away_possessions: int = 0   # 客隊總回合數
+    
+    # 詳細的回合時間紀錄 (List)
+    home_possession_history: List[float] = field(default_factory=list)
+    away_possession_history: List[float] = field(default_factory=list)
+    # 平均回合時間 (秒)
+    home_avg_seconds_per_poss: float = 0.0
+    away_avg_seconds_per_poss: float = 0.0
     
     # 快攻統計 (用於驗證 Phase 4.4 節奏與環境)
     home_fb_made: int = 0
@@ -3186,6 +3222,29 @@ class AttributionSystem:
         for p in opponent_team.on_court:
             if p.position == target_pos: return p
         return opponent_team.on_court[0]
+
+    @staticmethod
+    def update_plus_minus(scoring_team: EngineTeam, defending_team: EngineTeam, points: int):
+        """
+        [New] 更新場上球員正負值 (+/-)
+        """
+        if points == 0: return
+        
+        for p in scoring_team.on_court:
+            p.stat_plus_minus += points
+        
+        for p in defending_team.on_court:
+            p.stat_plus_minus -= points
+
+    @staticmethod
+    def record_possession_time(team: EngineTeam, seconds: float):
+        """
+        [Modified] 記錄回合消耗時間
+        1. 累加總時間 (stat_possession_seconds)
+        2. 記錄單次時間 (stat_possession_history)
+        """
+        team.stat_possession_seconds += seconds      # 累加總時間
+        team.stat_possession_history.append(seconds) # 記錄詳細歷史
 
     @staticmethod
     def record_attempt(player: EnginePlayer, is_3pt: bool):
@@ -3751,18 +3810,19 @@ File: app\services\match_engine\utils\rng.py
 import random
 from typing import List, Any, Optional
 
+# [Optimization] 將方法綁定移至模組層級 (Module Level)
+# 這避免了在 Python 3.13+ 中，將綁定方法(Bound Method)指派給類別屬性時可能發生的參數傳遞錯誤。
+# 同時保留了減少屬性查找(Attribute Lookup)的效能優勢。
+_sys_random = random.random
+_sys_uniform = random.uniform
+_sys_choice = random.choice
+
 class RNG:
     """
     極致效能優化版的隨機數生成器。
     針對「單次、高頻率」呼叫場景優化 (Event-Driven Simulation)。
     """
-    __slots__ = () # 節省記憶體，雖然此類別通常只用 staticmethod
-    
-    # 直接綁定 random 模組的底層函數到類別屬性
-    # 這樣可以減少每次呼叫時的 module lookup (字典查詢) 開銷
-    _random = random.random
-    _uniform = random.uniform
-    _choice = random.choice
+    __slots__ = () # 節省記憶體
     
     # 如果未來需要固定 Seed，可以在這裡實作初始化
     @classmethod
@@ -3773,31 +3833,25 @@ class RNG:
     def get_float(min_val: float = 0.0, max_val: float = 1.0) -> float:
         """
         回傳 [min_val, max_val] 之間的浮點數。
-        優化：直接使用綁定的 _random 進行線性運算，比呼叫 random.uniform 快一點點
         """
-        # 邏輯: min + (max - min) * random()
-        # 這裡直接用 random.uniform 其實已經是 C 實作，差異極小，
-        # 但為了極致，我們使用綁定的 _uniform
-        return RNG._uniform(min_val, max_val)
+        # 直接呼叫模組層級的別名，避免類別屬性查找的開銷與綁定問題
+        return _sys_uniform(min_val, max_val)
 
     @staticmethod
     def decision(probability: float) -> bool:
         """
         判定事件是否發生。
         probability: 0.0 ~ 1.0
-        優化：減少邊界檢查，假設呼叫端會傳入合法數值，以換取速度。
         """
-        # 在 100 萬場模擬中，這行會被呼叫上億次，省去 if check 至關重要
-        # 若 probability > 1.0，random() < prob 恆為 True，邏輯正確
-        # 若 probability < 0.0，random() < prob 恆為 False，邏輯正確
-        return RNG._random() < probability
+        # 優化：減少邊界檢查，假設呼叫端會傳入合法數值
+        return _sys_random() < probability
 
     @staticmethod
     def choice(items: List[Any]) -> Any:
         """
         從列表中選擇一個項目。
         """
-        return RNG._choice(items)
+        return _sys_choice(items)
 
     @staticmethod
     def weighted_index(weights: List[float]) -> int:
@@ -3805,9 +3859,8 @@ class RNG:
         根據權重回傳索引值。
         這是效能瓶頸點，Python 原生迴圈較慢。
         如果 weights 長度固定且很短 (如 5個位置)，這段 Python code 夠快。
-        如果很長，這部分才是未來需要用 numpy 優化的地方。
         """
-        r = RNG._random() * sum(weights)
+        r = _sys_random() * sum(weights)
         upto = 0.0
         for i, w in enumerate(weights):
             if w + upto >= r:
@@ -3816,7 +3869,6 @@ class RNG:
         return len(weights) - 1
 
 # 為了方便其他模組呼叫，直接暴露實例或類別
-# 但為了效能，建議其他模組直接 import RNG class 並呼叫靜態方法
 rng = RNG
 
 ============================================================

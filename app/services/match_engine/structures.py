@@ -77,6 +77,7 @@ class EnginePlayer:
     stat_blk: int = 0   # 阻攻
     stat_tov: int = 0   # 個人失誤
     fouls: int = 0      # 犯規次數
+    stat_plus_minus: int = 0 # 正負值 (+/-)
     
     # 投籃細項
     stat_fgm: int = 0   # 投籃命中 (含2分與3分)
@@ -119,6 +120,8 @@ class EngineTeam:
     
     # [Phase 2 新增] 進階團隊數據
     stat_possessions: int = 0 # 回合數 (用於計算 Pace)
+    stat_possession_seconds: float = 0.0 # 累積進攻時間 (秒)
+    stat_possession_history: List[float] = field(default_factory=list) # 記錄每一回合的時間 (List)
     stat_fb_made: int = 0     # 團隊快攻進球
     stat_fb_attempt: int = 0  # 團隊快攻嘗試
 
@@ -153,6 +156,13 @@ class MatchResult:
     pace: float = 0.0           # 節奏 (Possessions per 48 min)
     home_possessions: int = 0   # 主隊總回合數
     away_possessions: int = 0   # 客隊總回合數
+    
+    # 詳細的回合時間紀錄 (List)
+    home_possession_history: List[float] = field(default_factory=list)
+    away_possession_history: List[float] = field(default_factory=list)
+    # 平均回合時間 (秒)
+    home_avg_seconds_per_poss: float = 0.0
+    away_avg_seconds_per_poss: float = 0.0
     
     # 快攻統計 (用於驗證 Phase 4.4 節奏與環境)
     home_fb_made: int = 0

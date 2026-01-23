@@ -528,3 +528,42 @@
 
 --
 
+## 2026-01-16 15:30 ：進階數據統計與物理機制補完 (Advanced Stats & Physics Completion)
+
+### ✅ 進度摘要
+本次更新完成了 **Match Engine** 的功能補完，重點在於實作 **Spec v2.1** 的身高修正機制與 **Spec v2.3** 的抄截轉換邏輯。同時，為了支援更深度的戰術分析，新增了 **正負值 (+/-)** 與 **回合時間 (Possession Time)** 的統計追蹤。底層部分，針對 `RNG` 模組進行了微幅優化以避免潛在的綁定問題。
+
+### 🛠️ 技術細節
+
+1.  **進階數據系統 (`app/services/match_engine/structures.py` & `attribution.py`)**
+    - **正負值 (+/-)**:
+        - 在 `EnginePlayer` 新增 `stat_plus_minus` 欄位。
+        - 實作 `AttributionSystem.update_plus_minus`，在得分或罰球進球時，動態更新場上雙方球員的正負值。
+    - **回合時間 (Possession Time)**:
+        - 在 `EngineTeam` 新增 `stat_possession_seconds` (累積) 與 `stat_possession_history` (歷程)。
+        - 在 `MatchEngine._simulate_quarter` 中，將每個回合的消耗時間 (`elapsed`) 歸屬給進攻方，用於分析球隊的進攻節奏 (Pace) 與拖延戰術。
+
+2.  **物理機制實裝 (`app/services/match_engine/core.py`)**
+    - **身高修正 (Height Correction)**:
+        - 實作 `_apply_height_correction` 方法 (Spec v2.1)。
+        - 依據 Config 定義的 `bonus_threshold` (190cm) 與 `nerf_threshold` (210cm)，在賽前永久性修正球員的 `speed`, `dribble`, `handle`, `disrupt` 等屬性。
+    - **抄截轉換邏輯 (Transition Logic)**:
+        - 在 `_run_backcourt` 中完善了 Spec v2.3 的判斷。
+        - 當發生後場抄截時，計算雙方場上五人的速度總和，依據速度差判定是發動 **快攻 (Fastbreak)** 還是進入 **陣地戰 (Set Play)**。
+
+3.  **底層優化 (`app/services/match_engine/utils/rng.py`)**
+    - **Module Level Binding**: 將 `random` 的方法綁定從類別層級移至模組層級 (`_sys_random`, `_sys_uniform`)。
+    - **目的**: 避免在 Python 新版本中將綁定方法指派給類別屬性時可能產生的參數傳遞錯誤，同時保持極致的效能。
+
+4.  **輸出介面更新**
+    - 更新 `MatchResult` dataclass，新增 `home_possession_history`, `home_avg_seconds_per_poss` 等欄位，讓前端能繪製進攻時間分佈圖。
+
+### 📝 筆記
+- **數據觀察**: 加入回合時間統計後，可以明顯區分出「跑轟球隊」與「陣地戰球隊」的平均進攻時間差異（例如 8秒 vs 18秒）。
+- **正負值驗證**: 初步測試顯示，主力球員在場時的 +/- 值通常為正，符合預期，此數據將成為評估球員「隱形貢獻」的重要指標。
+
+### 🔜 下一步計畫
+- **改善速度對於球隊回合數的影響**
+
+--
+

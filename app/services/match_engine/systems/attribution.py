@@ -212,6 +212,29 @@ class AttributionSystem:
         return opponent_team.on_court[0]
 
     @staticmethod
+    def update_plus_minus(scoring_team: EngineTeam, defending_team: EngineTeam, points: int):
+        """
+        [New] 更新場上球員正負值 (+/-)
+        """
+        if points == 0: return
+        
+        for p in scoring_team.on_court:
+            p.stat_plus_minus += points
+        
+        for p in defending_team.on_court:
+            p.stat_plus_minus -= points
+
+    @staticmethod
+    def record_possession_time(team: EngineTeam, seconds: float):
+        """
+        [Modified] 記錄回合消耗時間
+        1. 累加總時間 (stat_possession_seconds)
+        2. 記錄單次時間 (stat_possession_history)
+        """
+        team.stat_possession_seconds += seconds      # 累加總時間
+        team.stat_possession_history.append(seconds) # 記錄詳細歷史
+
+    @staticmethod
     def record_attempt(player: EnginePlayer, is_3pt: bool):
         """記錄出手"""
         player.stat_fga += 1
