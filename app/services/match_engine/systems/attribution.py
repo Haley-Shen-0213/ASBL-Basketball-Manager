@@ -298,6 +298,18 @@ class AttributionSystem:
         if hasattr(team, 'stat_tov'): team.stat_tov += 1
 
     @staticmethod
+    def record_8sec_violation(team: EngineTeam):
+        """[New v2.4] 記錄8秒違例"""
+        team.stat_violation_8s += 1
+        team.stat_tov += 1
+
+    @staticmethod
+    def record_24sec_violation(team: EngineTeam):
+        """[New v2.4] 記錄24秒違例"""
+        team.stat_violation_24s += 1
+        team.stat_tov += 1
+
+    @staticmethod
     def record_foul(player: EnginePlayer):
         """記錄犯規"""
         player.fouls += 1

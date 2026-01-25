@@ -4,11 +4,11 @@ ASBL Basketball Manager - 專案程式碼匯總
 
 File: ASBL_Match_Engine_Specification.md
 ------------------------------------------------------------
-# ASBL 比賽引擎規格書 (v2.3) ASBL_Match_Engine_Specification.md
+# ASBL 比賽引擎規格書 (v2.4) ASBL_Match_Engine_Specification.md
 
-**版本**：2.3
+**版本**：2.4
 **狀態**：已確認 (Confirmed)
-**最後更新**2026-01-07
+**最後更新**2026-01-23
 **變更記錄**：
 *   **v1.0 (2025-12-04)**：初始版本
 *   **v1.2 (2025-12-07)**：體力消耗公式係數調整、基礎命中率調整 (Base Shooting Percentage)
@@ -31,6 +31,12 @@ File: ASBL_Match_Engine_Specification.md
     *   **新增**: 投籃命中率公式加入 **技巧加成 (Skill Bonus)** 機制，公式為 `1 + (accuracy+range+off_move)/800`，強化高數值射手優勢，並且將三分加成同步加上 `off_move`。
 *   **v2.3 (2026-01-07)**：
     *   **新增**: 抄截後的攻守轉換。
+*   **v2.4 (2026-01-23)**：
+    *   **調整**: 後場時間計算加入 **速度折扣 (Speed Discount)** 機制。
+    *   **新增**: 後場 **8秒違例** 判定規則。
+    *   **調整**: 前場時間計算加入 **速度折扣 (Speed Discount)** 機制。
+    *   **新增**: 全場 **24秒違例** 判定規則。
+    *   **更新**: Section 7 輸出數據定義，補全 Pace、快攻、+/- 值與進階團隊數據。
 
 ---
 
@@ -202,15 +208,17 @@ File: ASBL_Match_Engine_Specification.md
 *   **屬性池**: **[New v2.1 增加身高修正]**
     *   `進攻總值 (Off_Sum)` = 3 人的 (運球 + 傳球 + 進攻智商 - 身高) 總和。
     *   `防守總值 (Def_Sum)` = 3 人的 (抄截 + 干擾 + 防守智商 - 身高) 總和。
+    *   `後場速度總值 (Backcourt_Speed_Sum)` = 進攻方 3 人的 `速度 (ath_speed)` 總和。 **[New v2.4]**
 
-### 3.2 時間計算 (Time Calculation)
+### 3.2 時間計算 (Time Calculation) [Update v2.4]
 1.  **基礎時間**: 隨機骰 **1.0 ~ 8.0** 秒 (取至小數點第一位)。
-2.  **時間修正**:
-    *   **公式**: `修正秒數 = (Def_Sum - Off_Sum) * 0.008`
-    *   *說明*: 原係數 0.01 的 80%。
-    *   *範例*: 數值差 100 點 -> 影響 0.8 秒。
-3.  **最終時間**: `基礎時間 + 修正秒數`。
-    *   **上下限**: 鎖定在 **0.5 ~ 8.1** 秒之間。
+2.  **對抗修正**:
+    *   `對抗修正秒數 = (Def_Sum - Off_Sum) * 0.008`
+3.  **速度折扣 (Speed Discount)**:
+    *   `折扣秒數 = Random(0, (Backcourt_Speed_Sum / 3) * 0.01)`
+    *   *說明*: 速度越快，隨機扣除的時間越多，使推進更迅速。
+4.  **最終時間**: `基礎時間 + 對抗修正秒數 - 折扣秒數`。
+    *   **下限**: 鎖定在 **0.5** 秒 (物理極限)。
 
 ### 3.3 事件判定
 根據 `最終時間` 觸發對應事件：
@@ -279,14 +287,23 @@ File: ASBL_Match_Engine_Specification.md
 
 ## 4. 比賽引擎：前場階段 (Frontcourt Phase)
 
-### 4.1 進攻時間與出手品質
+### 4.1 進攻時間與出手品質 [Update v2.4]
 *   **基礎時間範圍**: `8.0` ~ `上限` 秒。
     *   **上限**: 一般回合為 `24.0 - 後場花費時間`；前場籃板回合為 `14.0`。
 *   **時間下限修正**:
-    *   **影響屬性**: `速度` (不可訓練), `進攻智商` (不可訓練), `傳球` (可訓練)。
+    *   **影響屬性**: `速度`, `進攻智商`, `傳球`。
     *   **邏輯**: 團隊上述三項屬性越高，能降低時間花費的下限 (最低不低於 4.0 秒)。
-*   **實際花費時間**: 在 `修正後下限` 與 `上限` 之間隨機產生。
-*   **出手品質加成**: 時間花費越少 -> 出手品質加成越高，實際公式：時間加成 = (7 - **實際花費時間**) * 0.01。
+*   **初步花費時間**: 在 `修正後下限` 與 `上限` 之間隨機產生。
+*   **速度折扣 (Speed Discount)**:
+    *   `前場速度總值 (Frontcourt_Speed_Sum)` = 進攻方場上 5 人的 `速度 (ath_speed)` 總和。
+    *   `折扣秒數 = Random(0, (Frontcourt_Speed_Sum / 5) * 0.01)`
+    *   **實際花費時間** = `初步花費時間 - 折扣秒數`。
+    *   **下限**: 實際花費時間最低不低於 **1.0** 秒。
+*   **24秒違例判定**:
+    *   若 `後場時間 + 實際花費時間 > 24.0`，則判定為 **24秒違例** (Team Turnover)，球權轉換。
+*   **出手品質加成**:
+    *   時間花費越少 -> 出手品質加成越高。
+    *   公式：`時間加成 = (7 - 實際花費時間) * 0.01`。
 
 ### 4.2 空間與跑位 (Spacing)
 *   **影響屬性**:
@@ -479,54 +496,68 @@ File: ASBL_Match_Engine_Specification.md
     *   歸屬: 團隊失誤 (Team TOV)。
     *   說明: 此類失誤計入球隊總失誤數，但不計入任何球員的個人數據。
 
-## 7. 輸出數據定義 (Output Data Definition) [New v1.8]
+## 7. 輸出數據定義 (Output Data Definition) [Update v2.4]
 比賽引擎執行完畢後，將回傳以下結構化數據。
 
 ### 7.1 比賽結果摘要 (Match Result)
 *   **資料來源**：`MatchEngine.simulate()` 回傳之 `MatchResult` 物件。
 
-| 欄位名稱 (Field) | 類型 | 說明 (Description) | 範例 / 備註 |
+| 欄位名稱 | 類型 | 說明 | 備註 |
 | :--- | :---: | :--- | :--- |
-| `game_id` | `str` | **比賽識別碼** | "SIM_GAME_001" |
-| `home_team_id` | `str` | **主隊 ID** | |
-| `away_team_id` | `str` | **客隊 ID** | |
-| `home_score` | `int` | **主隊最終得分** | |
-| `away_score` | `int` | **客隊最終得分** | |
-| `is_ot` | `bool` | **是否延長** | `True` 表示有進行 OT |
-| `total_quarters` | `int` | **總節數** | 4 (正規賽), >4 (含延長賽) |
-| `pbp_log` | `List` | **文字轉播紀錄** | 逐行紀錄比賽事件字串 |
+| `game_id` | `str` | 比賽識別碼 | |
+| `home_score` | `int` | 主隊得分 | |
+| `away_score` | `int` | 客隊得分 | |
+| `is_ot` | `bool` | 是否延長 | |
+| `pace` | `float` | **比賽節奏** | Pace (Possessions / 48min) |
+| `home_possessions` | `int` | **主隊回合數** | |
+| `away_possessions` | `int` | **客隊回合數** | |
+| `home_avg_seconds_per_poss` | `float` | **主隊平均每回合秒數** | |
+| `away_avg_seconds_per_poss` | `float` | **客隊平均每回合秒數** | |
+| `home_fb_made` | `int` | **主隊快攻進球** | |
+| `home_fb_attempt` | `int` | **主隊快攻嘗試** | |
+| `away_fb_made` | `int` | **客隊快攻進球** | |
+| `away_fb_attempt` | `int` | **客隊快攻嘗試** | |
+| `home_violation_8s` | `int` | **主隊8秒違例** | [New v2.4] |
+| `home_violation_24s` | `int` | **主隊24秒違例** | [New v2.4] |
+| `away_violation_8s` | `int` | **客隊8秒違例** | [New v2.4] |
+| `away_violation_24s` | `int` | **客隊24秒違例** | [New v2.4] |
 
 ### 7.2 球員統計數據 (Player Statistics / Box Score)
-*   **資料來源**：需遍歷賽後 `EngineTeam.roster` 中的 `EnginePlayer` 物件取得。
+*   **資料來源**：`EnginePlayer` 物件。
 
-| 分類 (Category) | 欄位代號 (Key) | 名稱 (Label) | 說明與備註 (Notes) |
+| 分類 | 欄位代號 | 名稱 | 說明 |
 | :--- | :--- | :--- | :--- |
-| **基礎數據** | `stat_pts` | **得分** (PTS) | 球員總得分 |
-| | `stat_reb` | **總籃板** (REB) | 進攻籃板 + 防守籃板 |
-| | `stat_ast` | **助攻** (AST) | |
-| | `stat_stl` | **抄截** (STL) | |
-| | `stat_blk` | **阻攻** (BLK) | |
-| | `stat_tov` | **個人失誤** (TOV) | 僅包含個人責任失誤 (如被抄截、傳球出界) |
-| | `fouls` | **犯規** (PF) | 累計達 6 次即犯滿離場 |
-| **投籃數據** | `stat_fgm` | **投籃命中** (FGM) | 包含 2 分球與 3 分球 |
-| | `stat_fga` | **投籃出手** (FGA) | 包含 2 分球與 3 分球 |
-| | `stat_3pm` | **三分命中** (3PM) | |
-| | `stat_3pa` | **三分出手** (3PA) | |
-| | `stat_ftm` | **罰球命中** (FTM) | |
-| | `stat_fta` | **罰球出手** (FTA) | |
-| **進階/狀態** | `stat_orb` | **進攻籃板** (ORB) | |
-| | `stat_drb` | **防守籃板** (DRB) | |
-| | `seconds_played` | **上場時間** (SEC) | 單位：**秒** (顯示時需除以 60 換算為分鐘) |
-| | `current_stamina` | **剩餘體力** | 賽後剩餘數值 (0.0 ~ 100.0) |
-| | `is_fouled_out` | **犯滿狀態** | `True` 表示該場比賽已犯滿離場 |
+| **基礎** | `stat_pts` | 得分 | |
+| | `stat_reb` | 籃板 | |
+| | `stat_ast` | 助攻 | |
+| | `stat_stl` | 抄截 | |
+| | `stat_blk` | 阻攻 | |
+| | `stat_tov` | 失誤 | |
+| | `fouls` | 犯規 | |
+| | `stat_plus_minus` | **正負值 (+/-)** | 球員在場期間球隊淨勝分 |
+| **投籃** | `stat_fgm` / `stat_fga` | 投籃命中/出手 | |
+| | `stat_3pm` / `stat_3pa` | 三分命中/出手 | |
+| | `stat_ftm` / `stat_fta` | 罰球命中/出手 | |
+| **進階** | `stat_orb` / `stat_drb` | 進/防籃板 | |
+| | `stat_fb_made` | **快攻進球** | |
+| | `stat_fb_attempt` | **快攻嘗試** | |
+| | `stat_remaining_stamina` | **剩餘體力** | |
+| | `seconds_played` | 上場時間 | |
 
 ### 7.3 團隊統計數據 (Team Statistics)
-*   **資料來源**：賽後 `EngineTeam` 物件。
+*   **資料來源**：`EngineTeam` 物件。
 
-| 欄位代號 (Key) | 名稱 (Label) | 說明與備註 (Notes) |
+| 欄位代號 | 名稱 | 說明 |
 | :--- | :--- | :--- |
-| `score` | **團隊總分** | 隊伍最終得分 |
-| `stat_tov` | **團隊失誤** | **非個人歸屬失誤** (如 8秒/24秒違例)<br>註：球隊總失誤數 = `Team.stat_tov` + `Sum(Player.stat_tov)` |
+| `score` | 團隊總分 | |
+| `stat_tov` | 團隊失誤 | 包含 8秒/24秒違例等非個人失誤 |
+| `stat_violation_8s` | **8秒違例** | [New v2.4] 團隊違例計數 |
+| `stat_violation_24s` | **24秒違例** | [New v2.4] 團隊違例計數 |
+| `stat_possessions` | **總回合數** | |
+| `stat_possession_seconds` | **總控球時間** | 單位：秒 |
+| `stat_fb_made` | **團隊快攻進球** | |
+| `stat_fb_attempt` | **團隊快攻嘗試** | |
+
 
 ============================================================
 
@@ -1185,17 +1216,23 @@ match_engine:
   # === 後場階段 (Backcourt Phase) [Spec v1.4 Section 3] ===
   backcourt:
     params:
-      time_base_min: 1.0         # 基礎過半場時間下限 (秒)
-      time_base_max: 8.0         # 基礎過半場時間上限 (秒)
+      time_base_min: 3.5         # 基礎過半場時間下限 (秒)
+      time_base_max: 4.5         # 基礎過半場時間上限 (秒)
       time_coeff: 0.008          # 時間修正係數: (防守總值 - 進攻總值) * 0.008
       violation_threshold: 8.0   # 超過此秒數 -> 8秒違例 (失誤)
       steal_threshold: 3.0       # 超過此秒數 -> 觸發後場抄截判定
       fastbreak_threshold: 1.5   # 低於此秒數 -> 觸發快攻判定
+      fastbreak_trigger_prob: 0.4 # [New] 滿足時間門檻後，實際觸發快攻的機率 (50%)
       steal_base_prob: 0.01      # 後場抄截基礎機率 (1%)
       steal_bonus_coeff: 0.001   # 抄截機率加成: (防守差值) * 0.1%
       
       # [v2.3] 抄截轉換設定
       transition_base_prob: 0.50   # 基礎機率 50%
+      
+      # [New v2.4] 速度折扣參數
+      speed_discount_coeff: 0.1  # 折扣係數 (Random(0, AvgSpeed * coeff))
+      speed_discount_coeff_def: 0.5  # 防守方折扣係數 
+      min_time_limit: 0.5        # 後場時間物理下限
 
     formulas:
       # [Spec 3.1] 屬性池 (增加身高懲罰)
@@ -1206,6 +1243,9 @@ match_engine:
       steal_def: ['def_disrupt', 'def_contest', 'talent_defiq', '-height']  # 抄截者的攻擊屬性
       # [v2.3] 轉換判定用的速度總和 (全隊)
       team_speed_sum: ['ath_speed']
+      
+      # [New v2.4] 後場速度折扣計算用 (3人)
+      backcourt_speed: ['ath_speed']
 
     # [Spec v1.4 Section 3.5] 快攻判定
     fastbreak:
@@ -1234,6 +1274,11 @@ match_engine:
       time_min_limit: 4.0        # 前場進攻時間下限 (最快4秒出手)
       time_quality_base: 7.0     # 品質基準秒數 (低於7秒開始有命中加成)
       spacing_bonus_coeff: 0.1   # 空間加成權重 (10%)
+      
+      # [New v2.4] 速度折扣與違例參數
+      speed_discount_coeff: 0.01  # 折扣係數
+      violation_threshold: 24.0  # 24秒違例總時間閾值
+      absolute_min_time: 0.4     # 前場時間物理下限
     
     formulas:
       # [Spec 4.1] 時間下限修正 (團隊屬性)
@@ -1242,6 +1287,9 @@ match_engine:
       # [Spec 4.2] 空間與跑位
       spacing_off: ['off_move', 'talent_offiq'] # 進攻方製造空間的屬性
       spacing_def: ['off_move', 'talent_defiq'] # 防守方壓縮空間的屬性
+      
+      # [New v2.4] 前場速度折扣計算用 (5人)
+      frontcourt_speed: ['ath_speed']
 
     # [Spec v1.4 Section 4.3] 封蓋判定
     block:
@@ -2237,7 +2285,14 @@ class MatchEngine:
             home_possession_history=self.home_team.stat_possession_history,
             away_possession_history=self.away_team.stat_possession_history,
             home_avg_seconds_per_poss=(self.home_team.stat_possession_seconds / self.home_team.stat_possessions) if self.home_team.stat_possessions > 0 else 0.0,
-            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0
+            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0,
+            
+            # =========== [FIX START] 補上違例數據 ===========
+            home_violation_8s=self.home_team.stat_violation_8s,
+            home_violation_24s=self.home_team.stat_violation_24s,
+            away_violation_8s=self.away_team.stat_violation_8s,
+            away_violation_24s=self.away_team.stat_violation_24s
+            # =========== [FIX END] ========================
         )
 
     def _jump_ball(self) -> str:
@@ -2479,11 +2534,31 @@ class MatchEngine:
             final_time = params.get('opening_seconds', 2.0)
         else:
             base = rng.get_float(params.get('time_base_min', 1.0), params.get('time_base_max', 8.0))
-            final_time = max(0.5, min(8.1, base + (def_sum - off_sum) * params.get('time_coeff', 0.008)))
+            diff_mod = (def_sum - off_sum) * params.get('time_coeff', 0.008)
+            
+            # [New v2.4] 速度折扣
+            spd_formula = formulas.get('backcourt_speed', ['ath_speed'])
+            spd_sum_off = Calculator.get_team_attr_sum(off_team.on_court[:3], spd_formula, attr_pools)
+            avg_spd_off = spd_sum_off / 3.0 if spd_sum_off > 0 else 50.0
+            spd_sum_def = Calculator.get_team_attr_sum(def_team.on_court[:3], spd_formula, attr_pools)
+            avg_spd_def = spd_sum_def / 3.0 if spd_sum_def > 0 else 50.0
+            
+            discount_coeff = params.get('speed_discount_coeff', 0.1)
+            discount_coeff_def = params.get('speed_discount_coeff_def', 0.5)
+            discount_off = rng.get_float(0.0, avg_spd_off * discount_coeff)
+            discount_def = rng.get_float(0.0, avg_spd_def * discount_coeff) * discount_coeff_def
+            
+            final_time = base + diff_mod - discount_off + discount_def
+            
+            # 物理下限
+            min_limit = params.get('min_time_limit', 0.5)
+            final_time = max(min_limit, final_time)
 
-        # Events
+        # 2. 8秒違例判定 (修改記錄方法)
         if final_time > params.get('violation_threshold', 8.0):
-            AttributionSystem.record_team_turnover(off_team)
+            # [Modified] 改用專屬的 8秒違例記錄方法
+            AttributionSystem.record_8sec_violation(off_team)
+            final_time = 8.0
             return final_time, 'turnover', f"{off_team.name} 8-sec Violation"
         
         # [Modified] 抄截判定
@@ -2517,14 +2592,21 @@ class MatchEngine:
                     # 觸發陣地戰 (直接進前場)
                     return final_time, 'steal_frontcourt', f"{def_team.name} Steal & Transition"
 
-        # [修正縮排] 快攻判定應與上方的抄截判定同層級
+        # 快攻判定：需同時滿足「時間門檻」與「機率檢定」
+        # 1. 檢查時間是否夠快
         if final_time < params.get('fastbreak_threshold', 1.0):
-            return self._run_fastbreak(off_team, def_team, final_time)
+            # 2. 取得觸發機率 (預設 0.5)
+            fb_prob = params.get('fastbreak_trigger_prob', 0.5)
+            
+            # 3. 進行機率骰子 (rng.random() 會回傳 0.0 ~ 1.0 之間的浮點數)
+            if rng.decision(fb_prob):
+                return self._run_fastbreak(off_team, def_team, final_time)
         
         return final_time, 'frontcourt', "Advance"
 
     def _run_frontcourt(self, off_team: EngineTeam, def_team: EngineTeam, elapsed_bc: float):
-        """(Spec 4) 前場"""
+        """(Spec 4) 前場階段 [Update v2.4 速度折扣 & 24秒違例]"""
+        # 1. 讀取設定檔參數
         fc_config = self.config.get('match_engine', {}).get('frontcourt', {})
         params = fc_config.get('params', {})
         formulas = fc_config.get('formulas', {})
@@ -2532,41 +2614,158 @@ class MatchEngine:
         
         ctx = {'quality': 0.0, 'spacing': 0.0}
         
-        # Time & Quality
+        # 2. 時間計算 (Time Calculation)
+        # 計算基於智商與傳導的時間縮減量
         red_attr = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('time_reduction', []), attr_pools), attr_pools)
         reduction = (red_attr / 1000.0) * 0.5
         min_time = max(4.0, 4.0 - reduction)
-        elapsed = rng.get_float(min_time, max(min_time+1, 24.0-elapsed_bc))
-        if elapsed < 7.0: ctx['quality'] = (7.0 - elapsed) * 0.01
         
-        # Spacing
+        # 計算本回合剩餘可用的進攻時間上限 (24秒 - 後場已用時間)
+        # 確保上限至少比下限大 1.0 秒，避免隨機錯誤
+        max_time = max(min_time + 1.0, 24.0 - elapsed_bc)
+        
+        # 初步隨機產生花費時間
+        elapsed = rng.get_float(min_time, max_time)
+        
+        # [New v2.4] 速度折扣 (Speed Discount)
+        # 計算進攻方場上 5 人的速度總和
+        spd_formula = formulas.get('frontcourt_speed', ['ath_speed'])
+        spd_sum_off = Calculator.get_team_attr_sum(off_team.on_court, spd_formula, attr_pools)
+        avg_spd_off = spd_sum_off / 5.0 if spd_sum_off > 0 else 50.0
+        spd_sum_def = Calculator.get_team_attr_sum(def_team.on_court, spd_formula, attr_pools)
+        avg_spd_def = spd_sum_def / 5.0 if spd_sum_def > 0 else 50.0
+        
+        # 計算折扣秒數 (速度越快，花費時間越少)
+        discount_coeff = params.get('speed_discount_coeff', 0.1)
+        discount_off = rng.get_float(0.0, avg_spd_off * discount_coeff)
+        discount_def = rng.get_float(0.0, avg_spd_def * discount_coeff)
+        
+        # 應用折扣
+        elapsed -= discount_off
+        elapsed += discount_def
+        
+        # 確保物理時間下限 (不能低於 1.0 秒)
+        abs_min = params.get('absolute_min_time', 1.0)
+        elapsed = max(abs_min, elapsed)
+        
+        # 3. 24秒違例判定 (24-Sec Violation)
+        # 若 (後場時間 + 前場時間) 超過 24 秒，則判定違例
+        violation_limit = params.get('violation_threshold', 24.0)
+        if (elapsed_bc + elapsed) > violation_limit:
+            AttributionSystem.record_24sec_violation(off_team)
+            elapsed = 24.0
+            return elapsed, 'turnover', f"{off_team.name} 24秒進攻違例", ctx
+
+        # 4. 計算出手品質 (Quality)
+        # 時間花費越少，品質越高 (代表跑出空檔或流暢配合)
+        if elapsed < 7.0: 
+            ctx['quality'] = (7.0 - elapsed) * 0.01
+        
+        # 5. 空間與跑位判定 (Spacing)
         off_sp = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('spacing_off', []), attr_pools), attr_pools)
         def_sp = Calculator.get_team_attr_sum(def_team.on_court, self._resolve_formula(formulas.get('spacing_def', []), attr_pools), attr_pools) or 1
+        
+        # 計算空間加成 (-1.0 ~ 1.0)
         sp_bonus = max(-1.0, min(1.0, (off_sp - def_sp)/def_sp + rng.get_float(-0.1, 0.1)))
         ctx['spacing'] = sp_bonus
 
-        # Block (Spec 4.3)
+        # 6. 封阻判定 (Block - Spec 4.3)
+        # 若空間擁擠 (sp_bonus <= 0.5)，封阻機率提升
         if sp_bonus <= 0.5:
-            blk_prob = 0.01 + (0.05 if sp_bonus < 0 else 0)
-            if rng.decision(blk_prob):
-                # Block Success Check
-                trigger_off_f = self._resolve_formula(formulas.get('block', {}).get('formulas', {}).get('trigger_off', []), attr_pools)
-                trigger_def_f = self._resolve_formula(formulas.get('block', {}).get('formulas', {}).get('trigger_def', []), attr_pools)
+            # --- 階段一：觸發判定 (Attempt Check) ---
+            blk_config = formulas.get('block', {})
+            blk_params = blk_config.get('params', {}) # 注意: YAML結構可能在 frontcourt.block 下
+            # 若讀取不到，嘗試從外層讀取 (視 YAML 結構而定，這裡假設在 frontcourt.block)
+            if not blk_config:
+                blk_config = formulas.get('block', {}) # Retry
+            
+            # 讀取公式 Key
+            blk_formulas = blk_config.get('formulas', {})
+            trigger_off_keys = self._resolve_formula(blk_formulas.get('trigger_off', ['off_move']), attr_pools)
+            trigger_def_keys = self._resolve_formula(blk_formulas.get('trigger_def', ['def_contest', 'talent_defiq']), attr_pools)
+            
+            # 計算團隊觸發值 (Team Sum)
+            trig_off_val = Calculator.get_team_attr_sum(off_team.on_court, trigger_off_keys, attr_pools)
+            trig_def_val = Calculator.get_team_attr_sum(def_team.on_court, trigger_def_keys, attr_pools)
+            
+            # 計算機率
+            # 基礎機率 1%
+            base_prob = blk_config.get('params', {}).get('base_prob', 0.01)
+            # 屬性修正: (防守 - 進攻) * 0.0001 (每100點差值+1%)
+            attr_mod = (trig_def_val - trig_off_val) * 0.0001
+            # 空間懲罰: 空間擁擠時大幅提升封蓋率
+            spacing_penalty = blk_config.get('params', {}).get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
+            
+            attempt_prob = max(0.0, base_prob + attr_mod + spacing_penalty)
+            
+            if rng.decision(attempt_prob):
+                # --- 階段二：對抗判定 (Success Check) ---
                 
-                blocker = AttributionSystem.determine_rebounder(off_team, def_team, True, self.config) 
-                shooter = AttributionSystem.determine_shooter(off_team, False, self.config) 
+                # 1. 決定角色
+                # 預測出手者 (Shooter)
+                shooter = AttributionSystem.determine_shooter(off_team, False, self.config)
+                # 決定對位防守者 (Blocker) - 依據 Spec 6.6 封蓋歸屬規則
+                blocker = AttributionSystem.get_position_matchup(shooter, def_team)
                 
-                AttributionSystem.record_block(blocker, shooter)
-                return elapsed, 'turnover', f"{def_team.name} Block", ctx
+                # 2. 計算對抗能力 (Power)
+                power_off_keys = self._resolve_formula(blk_formulas.get('power_off', ['ath_strength', 'ath_jump', 'talent_offiq', 'height']), attr_pools)
+                power_def_keys = self._resolve_formula(blk_formulas.get('power_def', ['ath_strength', 'ath_jump', 'def_contest', 'talent_defiq', 'height']), attr_pools)
+                
+                p_off = Calculator.get_player_attr_sum(shooter, power_off_keys, attr_pools)
+                p_def = Calculator.get_player_attr_sum(blocker, power_def_keys, attr_pools)
+                
+                # 3. 計算成功率
+                # Spec: Ratio = Off / Def. 數值越低防守優勢越大.
+                # 轉換為機率: Def / (Off + Def)
+                # 若 Off=500, Def=500 -> 50% 機率蓋掉
+                # 若 Off=400, Def=600 -> 60% 機率蓋掉
+                success_prob = p_def / (p_off + p_def) if (p_off + p_def) > 0 else 0.5
+                
+                if rng.decision(success_prob):
+                    # 封蓋成功 -> 失誤
+                    AttributionSystem.record_block(blocker, shooter)
+                    return elapsed, 'turnover', f"{def_team.name} {blocker.name} 封阻成功 (Block {shooter.name})", ctx
+                else:
+                    # 封蓋失敗 -> 進攻方強行出手 (繼續流程)
+                    # 可以在 ctx 中標記 'contested'，影響後續命中率或犯規率 (Optional)
+                    ctx['is_contested'] = True
+                    # Log (Optional)
+                    # print(f"Block Attempt Failed: {shooter.name} powered through {blocker.name}")
+                    pass
 
-        # Steal (Spec 4.4)
-        stl_prob = 0.01
-        if rng.decision(stl_prob):
+        # 7. 抄截判定 (Steal - Spec 4.4 Full Implementation)
+        # 讀取設定
+        stl_config = fc_config.get('steal', {})
+        stl_params = stl_config.get('params', {})
+        stl_formulas = stl_config.get('formulas', {})
+
+        # 1. 解析屬性公式 (Spec: Off_Ball vs Def_Steal)
+        # 預設值對應 YAML: off_dribble+off_handle+off_pass+off_iq-height
+        off_keys = self._resolve_formula(stl_formulas.get('off_attr', []), attr_pools)
+        # 預設值對應 YAML: speed+def_disrupt+def_iq-height
+        def_keys = self._resolve_formula(stl_formulas.get('def_attr', []), attr_pools)
+
+        # 2. 計算團隊屬性總和
+        # 這裡使用團隊總和來代表當下防守壓迫力與進攻穩定度
+        off_val = Calculator.get_team_attr_sum(off_team.on_court, off_keys, attr_pools)
+        def_val = Calculator.get_team_attr_sum(def_team.on_court, def_keys, attr_pools)
+
+        # 3. 計算最終機率
+        base_prob = stl_params.get('base_prob', 0.01)       # 基礎 1%
+        coeff = stl_params.get('stat_diff_coeff', 0.001)    # 係數 0.1%
+        
+        # 公式: 1% + (Def_Steal - Off_Ball) * 係數
+        final_prob = max(0.001, base_prob + (def_val - off_val) * coeff)
+
+        if rng.decision(final_prob):
+            # 決定抄截者 (Spec 6.5)
             stealer = AttributionSystem.determine_stealer(def_team, self.config)
+            # 記錄抄截與失誤 (Spec 6.7)
             AttributionSystem.record_steal(stealer, off_team)
-            return elapsed, 'turnover', f"{def_team.name} Frontcourt Steal", ctx
+            return elapsed, 'turnover', f"{def_team.name} {stealer.name} 前場抄截", ctx
 
-        return elapsed, 'shooting', "Shot Attempt", ctx
+        # 8. 進入投籃階段
+        return elapsed, 'shooting', "投籃出手", ctx
 
     def _run_fastbreak(self, off_team: EngineTeam, def_team: EngineTeam, elapsed: float) -> Tuple[float, str, str]:
         """
@@ -2949,7 +3148,11 @@ class EngineTeam:
     
     # 團隊統計 (Spec 7.3)
     score: int = 0
-    stat_tov: int = 0 # 團隊失誤 (如 8秒違例)
+    stat_tov: int = 0 # 團隊失誤 (如 8秒違例/24秒違例)
+    
+    # [New v2.4] 違例統計
+    stat_violation_8s: int = 0
+    stat_violation_24s: int = 0
     
     # [Phase 2 新增] 進階團隊數據
     stat_possessions: int = 0 # 回合數 (用於計算 Pace)
@@ -3003,8 +3206,11 @@ class MatchResult:
     away_fb_made: int = 0
     away_fb_attempt: int = 0
     
-    # 註：快攻成功率 (Success Rate) 可在資料庫層級透過 made/attempt 計算，
-    # 不需在此儲存浮點數，以節省空間。
+    # [New v2.4] 違例統計 (Team Level)
+    home_violation_8s: int = 0
+    home_violation_24s: int = 0
+    away_violation_8s: int = 0
+    away_violation_24s: int = 0
 
 ============================================================
 
@@ -3308,6 +3514,18 @@ class AttributionSystem:
     def record_team_turnover(team: EngineTeam):
         """記錄團隊失誤"""
         if hasattr(team, 'stat_tov'): team.stat_tov += 1
+
+    @staticmethod
+    def record_8sec_violation(team: EngineTeam):
+        """[New v2.4] 記錄8秒違例"""
+        team.stat_violation_8s += 1
+        team.stat_tov += 1
+
+    @staticmethod
+    def record_24sec_violation(team: EngineTeam):
+        """[New v2.4] 記錄24秒違例"""
+        team.stat_violation_24s += 1
+        team.stat_tov += 1
 
     @staticmethod
     def record_foul(player: EnginePlayer):
@@ -3870,6 +4088,1075 @@ class RNG:
 
 # 為了方便其他模組呼叫，直接暴露實例或類別
 rng = RNG
+
+============================================================
+
+File: tests\match_bigdata_test\run_core_bigdata_test.py
+------------------------------------------------------------
+# tests/match_bigdata_test/run_core_bigdata_test.py
+# -*- coding: utf-8 -*-
+"""
+ASBL Core Bigdata Test Runner (Forensic Version v2.5)
+
+[更新重點]
+1. 啟用 faulthandler：捕捉 C-level Segfault/Crash。
+2. Flush 隔離機制：存檔失敗僅丟棄該 Batch，不中斷主迴圈。
+3. 捕捉 BaseException：防止 SystemExit 等底層例外逃脫。
+4. 詳細錯誤日誌：確保所有 Warning 都有完整 Traceback。
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import traceback
+import faulthandler # [New] 啟用底層錯誤捕捉
+
+# 啟用 Fault Handler，若發生 Segfault 會將 Traceback 印到 stderr
+faulthandler.enable()
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, PROJECT_ROOT)
+
+import argparse
+import datetime as _dt
+import gc
+import time
+import subprocess
+from itertools import combinations
+from typing import Any, Dict, List
+
+import pandas as pd
+import psutil
+import yaml
+from tqdm import tqdm
+
+# 引用既有引擎程式碼
+from app.services.match_engine.core import MatchEngine
+from app.services.match_engine.structures import EngineTeam, EnginePlayer
+from app.services.match_engine.utils.rng import rng
+
+
+DEFAULT_PARQUET = "tests/match_bigdata_test/team/team_players.parquet"
+DEFAULT_OUTPUT_ROOT = "tests/match_bigdata_test/output"
+MAX_RETRIES_PER_GAME = 10
+
+
+def now_id() -> str:
+    return _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def make_snapshot(output_dir: str) -> str:
+    snapshot_dir = os.path.join(output_dir, "snapshot")
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    tool_path = os.path.join(PROJECT_ROOT, "tools", "code_merger.py")
+    if os.path.exists(tool_path):
+        try:
+            subprocess.run([sys.executable, tool_path], cwd=PROJECT_ROOT, check=True)
+            ctx_src = os.path.join(PROJECT_ROOT, "project_context.txt")
+            if os.path.exists(ctx_src):
+                with open(ctx_src, "rb") as rf, open(os.path.join(snapshot_dir, "project_context.txt"), "wb") as wf:
+                    wf.write(rf.read())
+        except Exception as e:
+            print(f"[Warning] Snapshot creation failed: {e}")
+
+    cfg_src = os.path.join(PROJECT_ROOT, "config", "game_config.yaml")
+    if os.path.exists(cfg_src):
+        with open(cfg_src, "rb") as rf, open(os.path.join(snapshot_dir, "game_config.yaml"), "wb") as wf:
+            wf.write(rf.read())
+
+    return snapshot_dir
+
+
+def load_config() -> Dict[str, Any]:
+    cfg_path = os.path.join(PROJECT_ROOT, "config", "game_config.yaml")
+    with open(cfg_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+STAT_20 = [
+    "ath_stamina", "ath_strength", "ath_speed", "ath_jump",
+    "shot_touch", "shot_release", "talent_offiq", "talent_defiq", "talent_health", "talent_luck",
+    "shot_accuracy", "shot_range", "def_rebound", "def_boxout", "def_contest", "def_disrupt",
+    "off_move", "off_dribble", "off_pass", "off_handle",
+]
+
+
+def build_engine_player(row: Dict[str, Any]) -> EnginePlayer:
+    attr_sum = int(sum(int(row.get(k, 0) or 0) for k in STAT_20))
+    return EnginePlayer(
+        id=str(row["player_id"]),
+        name=str(row["name"]),
+        position=str(row["position"]),
+        role=str(row.get("role", row.get("contract_role", "Bench"))),
+        grade=str(row.get("grade", "G")),
+        height=float(row.get("height", 195)),
+
+        ath_stamina=float(row.get("ath_stamina", 0)),
+        ath_strength=float(row.get("ath_strength", 0)),
+        ath_speed=float(row.get("ath_speed", 0)),
+        ath_jump=float(row.get("ath_jump", 0)),
+        talent_health=float(row.get("talent_health", 0)),
+        shot_touch=float(row.get("shot_touch", 0)),
+        shot_release=float(row.get("shot_release", 0)),
+        talent_offiq=float(row.get("talent_offiq", 0)),
+        talent_defiq=float(row.get("talent_defiq", 0)),
+        talent_luck=float(row.get("talent_luck", 0)),
+
+        shot_accuracy=float(row.get("shot_accuracy", 0)),
+        shot_range=float(row.get("shot_range", 0)),
+        def_rebound=float(row.get("def_rebound", 0)),
+        def_boxout=float(row.get("def_boxout", 0)),
+        def_contest=float(row.get("def_contest", 0)),
+        def_disrupt=float(row.get("def_disrupt", 0)),
+        off_move=float(row.get("off_move", 0)),
+        off_dribble=float(row.get("off_dribble", 0)),
+        off_pass=float(row.get("off_pass", 0)),
+        off_handle=float(row.get("off_handle", 0)),
+
+        attr_sum=attr_sum,
+    )
+
+
+def load_teams(parquet_rel: str) -> Dict[str, EngineTeam]:
+    df = pd.read_parquet(os.path.join(PROJECT_ROOT, parquet_rel))
+    if "team_id" not in df.columns:
+        raise ValueError("team_players.parquet 缺少 team_id")
+
+    teams: Dict[str, EngineTeam] = {}
+    for tid, g in df.groupby("team_id"):
+        roster = [build_engine_player(rec) for rec in g.to_dict(orient="records")]
+        teams[str(tid)] = EngineTeam(id=str(tid), name=str(tid), roster=roster)
+
+    if len(teams) != 4:
+        raise ValueError(f"預期 4 隊，實際 {len(teams)}：{list(teams.keys())}")
+
+    for tid, t in teams.items():
+        if len(t.roster) != 15:
+            raise ValueError(f"{tid} roster 不是 15 人：{len(t.roster)}")
+
+    return teams
+
+
+def clone_team(src: EngineTeam) -> EngineTeam:
+    roster = []
+    for p in src.roster:
+        row = {
+            "player_id": p.id,
+            "name": p.name,
+            "position": p.position,
+            "role": p.role,
+            "grade": p.grade,
+            "height": p.height,
+        }
+        for k in STAT_20:
+            row[k] = getattr(p, k)
+        roster.append(build_engine_player(row))
+    return EngineTeam(id=src.id, name=src.name, roster=roster)
+
+
+def write_parquet(df: pd.DataFrame, path: str):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    df.to_parquet(path, index=False)
+
+
+def concat_parquets(files: List[str], out_path: str):
+    if not files:
+        raise ValueError(f"沒有檔案可合併：{out_path}")
+    
+    dfs = []
+    desc = f"Merging {os.path.basename(out_path)}"
+    for fp in tqdm(files, desc=desc, leave=False, unit="file"):
+        dfs.append(pd.read_parquet(fp))
+    
+    pd.concat(dfs, ignore_index=True).to_parquet(out_path, index=False)
+
+
+def extract_box_rows(game_id: str, team: EngineTeam, opp_id: str) -> List[Dict[str, Any]]:
+    rows = []
+    for p in team.roster:
+        rows.append({
+            "game_id": game_id,
+            "team_id": team.id,
+            "opponent_team_id": opp_id,
+            "player_id": p.id,
+            "name": p.name,
+            "grade": p.grade,
+            "role": p.role,
+            "position": p.position,
+            "height": float(p.height),
+            "attr_sum": int(p.attr_sum),
+
+            "stat_pts": int(p.stat_pts),
+            "stat_reb": int(p.stat_reb),
+            "stat_ast": int(p.stat_ast),
+            "stat_stl": int(p.stat_stl),
+            "stat_blk": int(p.stat_blk),
+            "stat_tov": int(p.stat_tov),
+            "fouls": int(p.fouls),
+            "stat_plus_minus": int(p.stat_plus_minus),
+
+            "stat_fgm": int(p.stat_fgm),
+            "stat_fga": int(p.stat_fga),
+            "stat_3pm": int(p.stat_3pm),
+            "stat_3pa": int(p.stat_3pa),
+            "stat_ftm": int(p.stat_ftm),
+            "stat_fta": int(p.stat_fta),
+
+            "stat_orb": int(p.stat_orb),
+            "stat_drb": int(p.stat_drb),
+
+            "seconds_played": float(p.seconds_played),
+            "current_stamina": float(p.current_stamina),
+            "is_fouled_out": bool(p.is_fouled_out),
+
+            "stat_fb_made": int(p.stat_fb_made),
+            "stat_fb_attempt": int(p.stat_fb_attempt),
+        })
+    return rows
+
+
+def extract_possession_rows(game_id: str, team: EngineTeam, opp_id: str) -> List[Dict[str, Any]]:
+    rows = []
+    for i, sec in enumerate(team.stat_possession_history):
+        rows.append({
+            "game_id": game_id,
+            "team_id": team.id,
+            "opponent_team_id": opp_id,
+            "possession_index": int(i),
+            "seconds": float(sec),
+        })
+    return rows
+
+
+def calc_orating(points: int, poss: int) -> float:
+    return (points / poss * 100.0) if poss > 0 else 0.0
+
+
+def _team_strength(team: EngineTeam) -> int:
+    return int(sum(int(p.attr_sum) for p in team.roster))
+
+
+def _fmt_pct(x: float) -> str:
+    return f"{x*100:.2f}%"
+
+def _roster_stats_table(team: EngineTeam, box_df: pd.DataFrame) -> str:
+    team_box = box_df[box_df['team_id'] == team.id]
+    stats_agg = team_box.groupby('player_id').agg(
+        G=('game_id', 'count'),
+        PTS=('stat_pts', 'mean'),
+        REB=('stat_reb', 'mean'),
+        AST=('stat_ast', 'mean'),
+        STL=('stat_stl', 'mean'),
+        BLK=('stat_blk', 'mean'),
+        TOV=('stat_tov', 'mean'),
+        PF=('fouls', 'mean'),
+        PM=('stat_plus_minus', 'mean'),
+        FGM=('stat_fgm', 'mean'),
+        FGA=('stat_fga', 'mean'),
+        M3PM=('stat_3pm', 'mean'),
+        M3PA=('stat_3pa', 'mean'),
+        FTM=('stat_ftm', 'mean'),
+        FTA=('stat_fta', 'mean'),
+        ORB=('stat_orb', 'mean'),
+        DRB=('stat_drb', 'mean'),
+        FB_M=('stat_fb_made', 'mean'),
+        FB_A=('stat_fb_attempt', 'mean'),
+        REM_ST=('current_stamina', 'mean'),
+        SEC=('seconds_played', 'mean')
+    ).reset_index()
+
+    stats_map = stats_agg.set_index('player_id').to_dict('index')
+
+    header = (
+        "| 名稱 | 位置 | 等級 | 時間 | 得分 | 籃板 | 助攻 | 抄截 | 阻攻 | 失誤 | 犯規 | +/- | "
+        "FG | 3PT | FT | OR/DR | 快攻(M/A) | 體力 | "
+        "體能 | 力量 | 速度 | 彈跳 | 健康 | 手感 | 出手 | 攻智 | 守智 | 運氣 | "
+        "投籃 | 射程 | 傳球 | 運球 | 控球 | 跑位 | 籃板 | 卡位 | 干擾 | 抄截 |\n"
+    )
+    sep = "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+    
+    lines = [header, sep]
+    
+    for p in team.roster:
+        s = stats_map.get(p.id, {})
+        mpg = s.get('SEC', 0) / 60.0
+        
+        fg_str = f"{s.get('FGM',0):.1f}/{s.get('FGA',0):.1f}"
+        tp_str = f"{s.get('M3PM',0):.1f}/{s.get('M3PA',0):.1f}"
+        ft_str = f"{s.get('FTM',0):.1f}/{s.get('FTA',0):.1f}"
+        reb_split = f"{s.get('ORB',0):.1f}/{s.get('DRB',0):.1f}"
+        fb_str = f"{s.get('FB_M',0):.1f}/{s.get('FB_A',0):.1f}"
+        
+        line = (
+            f"| {p.name} | {p.position} | {p.grade} | {mpg:.1f} | "
+            f"**{s.get('PTS',0):.1f}** | {s.get('REB',0):.1f} | {s.get('AST',0):.1f} | {s.get('STL',0):.1f} | "
+            f"{s.get('BLK',0):.1f} | {s.get('TOV',0):.1f} | {s.get('PF',0):.1f} | {s.get('PM',0):+.1f} | "
+            f"{fg_str} | {tp_str} | {ft_str} | {reb_split} | {fb_str} | {s.get('REM_ST',0):.1f} | "
+            f"{int(p.ath_stamina)} | {int(p.ath_strength)} | {int(p.ath_speed)} | {int(p.ath_jump)} | {int(p.talent_health)} | "
+            f"{int(p.shot_touch)} | {int(p.shot_release)} | {int(p.talent_offiq)} | {int(p.talent_defiq)} | {int(p.talent_luck)} | "
+            f"{int(p.shot_accuracy)} | {int(p.shot_range)} | {int(p.off_pass)} | {int(p.off_dribble)} | {int(p.off_handle)} | {int(p.off_move)} | "
+            f"{int(p.def_rebound)} | {int(p.def_boxout)} | {int(p.def_contest)} | {int(p.def_disrupt)} |\n"
+        )
+        lines.append(line)
+        
+    return "".join(lines)
+
+def _slice_bin(sec: float) -> int:
+    if sec >= 24.0:
+        return 23
+    if sec < 0:
+        return 0
+    return int(sec)
+
+def build_report(
+    report_path: str,
+    run_id: str,
+    config: Dict[str, Any],
+    teams_src: Dict[str, EngineTeam],
+    matches_df: pd.DataFrame,
+    team_df: pd.DataFrame,
+    box_df: pd.DataFrame,
+    poss_df: pd.DataFrame,
+):
+    now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    pbar = tqdm(total=13, desc="Analyzing & Reporting", unit="step")
+
+    # 1) 概況
+    total_games = int(matches_df.shape[0])
+    ot_games = int(matches_df["is_ot"].sum())
+    q_dist = matches_df["total_quarters"].value_counts().sort_index().to_dict()
+    pbar.update(1)
+
+    # 1.2) Config Snapshot
+    me = config.get("match_engine", {})
+    gen = me.get("general", {})
+    sub = gen.get("substitution", {})
+    shoot = me.get("shooting", {}).get("params", {})
+    match_engine_yaml = yaml.safe_dump(me, allow_unicode=True, sort_keys=False)
+    pbar.update(1)
+
+    # 2) Roster Stats Preparation
+    team_ids = sorted(list(teams_src.keys()))
+    strengths = {tid: _team_strength(teams_src[tid]) for tid in team_ids}
+    pbar.update(1)
+
+    # 3) Win Rate & Diff
+    h2h_stats = {} 
+    matches_df['diff_abs'] = (matches_df['team_a_score'] - matches_df['team_b_score']).abs()
+    
+    win_counts = {tid: 0 for tid in team_ids}
+    game_counts = {tid: 0 for tid in team_ids}
+    
+    for _, r in matches_df.iterrows():
+        a, b = r['team_a_id'], r['team_b_id']
+        sa, sb = r['team_a_score'], r['team_b_score']
+        
+        game_counts[a] += 1
+        game_counts[b] += 1
+        
+        key_a = (a, b)
+        key_b = (b, a)
+        if key_a not in h2h_stats: h2h_stats[key_a] = [0, 0]
+        if key_b not in h2h_stats: h2h_stats[key_b] = [0, 0]
+        
+        h2h_stats[key_a][1] += 1
+        h2h_stats[key_b][1] += 1
+        
+        if sa > sb:
+            win_counts[a] += 1
+            h2h_stats[key_a][0] += 1
+        elif sb > sa:
+            win_counts[b] += 1
+            h2h_stats[key_b][0] += 1
+            
+    bins = [0, 5, 10, 15, 20, 30, 40, 50, 999]
+    labels = ["1-5", "6-10", "11-15", "16-20", "21-30", "31-40", "41-50", ">50"]
+    diff_cats = pd.cut(matches_df['diff_abs'], bins=bins, labels=labels, right=False)
+    diff_dist = diff_cats.value_counts().sort_index()
+    
+    diff_mean = matches_df['diff_abs'].mean()
+    diff_std = matches_df['diff_abs'].std()
+    pbar.update(1)
+
+    # 4) Team Stats Aggregation
+    t_agg = team_df.groupby("team_id").agg(
+        G=("game_id", "count"),
+        PTS=("points", "mean"),
+        Opp_PTS=("opp_points", "mean"),
+        Pace=("pace", "mean"),
+        Poss=("possessions", "mean"),
+        SecPerPoss=("sec_per_poss", "mean"),
+        ORtg=("ortg", "mean"),
+        DRtg=("drtg", "mean"),
+        Net=("net", "mean"),
+        FB_Att=("fb_attempt", "mean"),
+        FB_Made=("fb_made", "mean"),
+        Vio8=("violation_8s", "mean"),
+        Vio24=("violation_24s", "mean"),
+    ).reset_index()
+    t_agg["FB%"] = t_agg.apply(lambda r: (r["FB_Made"] / r["FB_Att"]) if r["FB_Att"] > 0 else 0.0, axis=1)
+    t_agg["FB_Freq"] = t_agg.apply(lambda r: (r["FB_Att"] / r["Poss"] * 100.0) if r["Poss"] > 0 else 0.0, axis=1)
+    pbar.update(1)
+
+    # 5) Player Correlation
+    box_play = box_df.copy()
+    box_play["mp"] = box_play["seconds_played"].astype(float) / 60.0
+    box_play = box_play[box_play["mp"] > 5.0].copy()
+
+    def summarize_skill(df: pd.DataFrame) -> pd.DataFrame:
+        out = df.groupby("grade").agg(
+            attr_sum=("attr_sum", "mean"),
+            MPG=("mp", "mean"),
+            PPG=("stat_pts", "mean"),
+            RPG=("stat_reb", "mean"),
+            APG=("stat_ast", "mean"),
+            SPG=("stat_stl", "mean"),
+            BPG=("stat_blk", "mean"),
+            TO=("stat_tov", "mean"),
+            PM=("stat_plus_minus", "mean"),
+            FGM=("stat_fgm", "sum"),
+            FGA=("stat_fga", "sum"),
+            N=("player_id", "count"),
+        ).reset_index()
+        out["FG%"] = out.apply(lambda r: (r["FGM"] / r["FGA"]) if r["FGA"] > 0 else 0.0, axis=1)
+        out["Pts/36"] = out.apply(lambda r: (r["PPG"] / r["MPG"] * 36.0) if r["MPG"] > 0 else 0.0, axis=1)
+        out["Eff/36"] = out.apply(
+            lambda r: ((r["PPG"] + r["RPG"] + r["APG"] + r["SPG"] + r["BPG"] - r["TO"]) / r["MPG"] * 36.0) if r["MPG"] > 0 else 0.0,
+            axis=1
+        )
+        return out
+    pbar.update(1)
+
+    # 6) Stamina
+    def stamina_bucket(s: float) -> str:
+        if s >= 80: return "正常 (80-100)"
+        if s >= 60: return "稍微疲累 (60-79)"
+        if s >= 40: return "有點疲累 (40-59)"
+        if s >= 20: return "疲累 (20-39)"
+        return "非常疲累 (1-19)"
+
+    box_df["st_bucket"] = box_df["current_stamina"].astype(float).apply(stamina_bucket)
+    pbar.update(1)
+
+    # 7) Fouls
+    avg_pf = float(box_df["fouls"].mean())
+    max_pf = int(box_df["fouls"].max())
+    fouled_out_cnt = int(box_df["is_fouled_out"].sum())
+    pf_team_game = box_df.groupby(["game_id", "team_id"])["fouls"].sum().reset_index()
+    pf_team_avg = pf_team_game.groupby("team_id")["fouls"].mean().to_dict()
+    pf_dist = {}
+    for tid in team_ids:
+        subdf = box_df[box_df["team_id"] == tid]
+        pf_dist[tid] = subdf["fouls"].value_counts().sort_index().to_dict()
+    pbar.update(1)
+
+    # 8) Possession Time & Violations
+    slice_counts = {tid: [0] * 24 for tid in team_ids}
+    poss_stats = {} 
+    
+    for tid in team_ids:
+        t_poss = poss_df[poss_df['team_id'] == tid]['seconds']
+        poss_stats[tid] = {
+            'mean': t_poss.mean(),
+            'std': t_poss.std(),
+            'count': t_poss.count()
+        }
+        
+    for _, r in poss_df.iterrows():
+        tid = r["team_id"]
+        sec = float(r["seconds"])
+        slice_counts[tid][_slice_bin(sec)] += 1
+
+    v8 = team_df.groupby("team_id")["violation_8s"].sum().to_dict()
+    v24 = team_df.groupby("team_id")["violation_24s"].sum().to_dict()
+    pbar.update(1)
+
+    # 10) Speed vs Pace Correlation (Weighted by Minutes)
+    team_speed_data = []
+    for tid in team_ids:
+        # Get static speed from roster
+        t_roster = teams_src[tid].roster
+        spd_map = {p.id: p.ath_speed for p in t_roster}
+        
+        # Get minutes played for this team
+        t_box = box_df[box_df['team_id'] == tid]
+        p_minutes = t_box.groupby('player_id')['seconds_played'].sum()
+        
+        total_sec = 0
+        weighted_sum = 0
+        for pid, sec in p_minutes.items():
+            s = spd_map.get(pid, 0)
+            weighted_sum += s * sec
+            total_sec += sec
+            
+        avg_w_speed = weighted_sum / total_sec if total_sec > 0 else 0
+        
+        team_row = t_agg[t_agg['team_id'] == tid].iloc[0]
+        team_speed_data.append({
+            'team_id': tid,
+            'w_speed': avg_w_speed,
+            'pace': team_row['Pace'],
+            'poss': team_row['Poss']
+        })
+    speed_df = pd.DataFrame(team_speed_data)
+    pbar.update(1)
+
+    # 11) High Grade Player Ranking (SSR/SS/S)
+    high_grade_box = box_df[box_df['grade'].isin(['SSR', 'SS', 'S'])].copy()
+    high_grade_box["mp"] = high_grade_box["seconds_played"].astype(float) / 60.0
+    
+    hg_stats = high_grade_box.groupby(['player_id', 'name', 'team_id', 'position', 'grade']).agg(
+        MPG=('mp', 'mean'),
+        PPG=('stat_pts', 'mean'),
+        RPG=('stat_reb', 'mean'),
+        APG=('stat_ast', 'mean'),
+        SPG=('stat_stl', 'mean'),
+        BPG=('stat_blk', 'mean'),
+        TO=('stat_tov', 'mean'),
+        FGM=('stat_fgm', 'sum'),
+        FGA=('stat_fga', 'sum'),
+    ).reset_index()
+    
+    hg_stats["FG%"] = hg_stats.apply(lambda r: (r["FGM"] / r["FGA"]) if r["FGA"] > 0 else 0.0, axis=1)
+    # Sort by PPG descending
+    hg_stats = hg_stats.sort_values('PPG', ascending=False).head(20)
+    pbar.update(1)
+
+    # 12) Violation Distribution
+    vio_dist_data = {}
+    for tid in team_ids:
+        tdf = team_df[team_df['team_id'] == tid]
+        v8_counts = tdf['violation_8s'].value_counts().sort_index().to_dict()
+        v24_counts = tdf['violation_24s'].value_counts().sort_index().to_dict()
+        vio_dist_data[tid] = {'v8': v8_counts, 'v24': v24_counts}
+    pbar.update(1)
+
+    # ---- WRITE REPORT ----
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("# ASBL 模擬平衡性分析報告 (v2.4)\n")
+        f.write(f"**分析時間:** {now_str}\n")
+        f.write(f"**資料來源:** `{run_id}`\n\n")
+
+        f.write("## 1. 模擬概況\n")
+        f.write(f"- **實際分析場數:** {total_games}\n")
+        f.write(f"- **總球員人次 (boxscores rows):** {int(box_df.shape[0])}\n")
+        f.write(f"- **OT 場數:** {ot_games} ({_fmt_pct(ot_games / max(1, total_games))})\n")
+        dist_str = ", ".join([f"{k}節={v}" for k, v in q_dist.items()])
+        f.write(f"- **節數分佈:** {dist_str}\n\n")
+
+        f.write("### 1.2 參數設定 (Config Snapshot)\n")
+        f.write("| 參數類別 | 參數名稱 | 設定值 |\n|---|---|---|\n")
+        f.write(f"| **全域設定** | 每節長度 | `{gen.get('quarter_length')}` |\n")
+        f.write(f"| | 犯滿次數 | `{sub.get('foul_limit')}` |\n")
+        f.write(f"| **體力系統** | 消耗係數 | `{gen.get('stamina_drain_coeff')}` |\n")
+        f.write(f"| | 衰退閾值 | `{gen.get('stamina_nerf_threshold')}` |\n")
+        f.write(f"| **投籃設定** | 兩分基數 | `{shoot.get('base_rate_2pt')}` |\n")
+        f.write(f"| | 三分基數 | `{shoot.get('base_rate_3pt')}` |\n\n")
+
+        f.write("#### match_engine 全設定 (YAML)\n")
+        f.write("```yaml\n")
+        f.write(match_engine_yaml)
+        f.write("```\n\n")
+
+        f.write("## 2. 測試球隊陣容 (含場均數據)\n")
+        f.write("> 註：數據為本批次模擬之平均值\n")
+        for tid in team_ids:
+            t = teams_src[tid]
+            f.write(f"### 球隊代碼: `{tid}` (戰力總和: {strengths[tid]:,})\n")
+            f.write(_roster_stats_table(t, box_df))
+            f.write("\n")
+
+        f.write("## 3. 球隊勝率與分差分佈\n")
+        f.write("### 3.1 總勝率\n")
+        f.write("| 球隊代碼 | 勝場 | 總場數 | 勝率 |\n|---|---:|---:|---:|\n")
+        for tid in team_ids:
+            g = int(game_counts[tid])
+            w = int(win_counts[tid])
+            wr = (w / g) if g > 0 else 0.0
+            f.write(f"| `{tid}` | {w} | {g} | **{_fmt_pct(wr)}** |\n")
+        f.write("\n")
+
+        f.write("### 3.2 對戰組合勝率\n")
+        f.write("| 對戰組合 (A vs B) | A 勝場 | B 勝場 | 總場數 | A 勝率 |\n|---|---:|---:|---:|---:|\n")
+        for (a, b), stats in sorted(h2h_stats.items()):
+            if a < b: # 只顯示單向組合避免重複
+                w_a = stats[0]
+                total = stats[1]
+                w_b = total - w_a
+                wr_a = w_a / total if total > 0 else 0
+                f.write(f"| {a} vs {b} | {w_a} | {w_b} | {total} | **{_fmt_pct(wr_a)}** |\n")
+        f.write("\n")
+
+        f.write("### 3.3 分差分佈 (勝分差絕對值)\n")
+        f.write("| 分差區間 | 場數 | 比例 |\n|---|---:|---:|\n")
+        for lab, cnt in diff_dist.items():
+            f.write(f"| {lab} | {int(cnt)} | {_fmt_pct(int(cnt)/max(1,total_games))} |\n")
+        f.write("\n")
+
+        f.write("### 3.4 勝分差常態分佈分析\n")
+        f.write(f"- **平均分差 (Mean):** {diff_mean:.2f} 分\n")
+        f.write(f"- **標準差 (Std Dev):** {diff_std:.2f}\n")
+        f.write(f"- **68% 區間 (Mean ± 1σ):** {max(0, diff_mean-diff_std):.1f} ~ {diff_mean+diff_std:.1f} 分\n\n")
+
+        f.write("## 4. 節奏、回合數、快攻與效率 (團隊場均)\n")
+        f.write("### 4.1 綜合數據表\n")
+        f.write("| 球隊 | 場數 | 得分 | 失分 | 節奏(Pace) | 回合數 | 每回合秒數 | 進攻效率(ORtg) | 防守效率(DRtg) | 淨效率(Net) | 快攻出手 | 快攻命中率 | 快攻頻率(%) | 8秒違例 | 24秒違例 |\n")
+        f.write("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+        for _, r in t_agg.sort_values("team_id").iterrows():
+            f.write(
+                f"| `{r['team_id']}` | {int(r['G'])} | {r['PTS']:.1f} | {r['Opp_PTS']:.1f} | {r['Pace']:.2f} | {r['Poss']:.2f} | "
+                f"{r['SecPerPoss']:.2f} | {r['ORtg']:.1f} | {r['DRtg']:.1f} | {r['Net']:+.1f} | {r['FB_Att']:.2f} | "
+                f"{_fmt_pct(float(r['FB%']))} | {r['FB_Freq']:.2f}% | {r['Vio8']:.2f} | {r['Vio24']:.2f} |\n"
+            )
+        f.write("\n")
+
+        f.write("## 5. 能力與表現相關性 (分級分析)\n")
+        f.write("> 排序：SSR -> G\n")
+        grade_order = {"SSR": 0, "SS": 1, "S": 2, "A": 3, "B": 4, "C": 5, "G": 6}
+        
+        for tid in team_ids:
+            f.write(f"### 球隊: `{tid}`\n")
+            subdf = box_play[box_play["team_id"] == tid]
+            if subdf.empty:
+                f.write("> 無符合篩選條件的樣本\n\n")
+                continue
+            summ = summarize_skill(subdf)
+            # Sort
+            summ['sort_key'] = summ['grade'].map(lambda x: grade_order.get(x, 99))
+            summ = summ.sort_values('sort_key')
+            
+            f.write("| 等級 | 平均屬性 | 上場(分) | 得分 | 籃板 | 助攻 | 抄截 | 阻攻 | 失誤 | +/- | 命中率 | Pts/36 | 效率/36 | 樣本數 |\n")
+            f.write("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
+            for _, r in summ.iterrows():
+                f.write(
+                    f"| **{r['grade']}** | {float(r['attr_sum']):.1f} | {float(r['MPG']):.1f} | {float(r['PPG']):.1f} | "
+                    f"{float(r['RPG']):.1f} | {float(r['APG']):.1f} | {float(r['SPG']):.1f} | {float(r['BPG']):.1f} | "
+                    f"{float(r['TO']):.1f} | {float(r['PM']):+.1f} | {_fmt_pct(float(r['FG%']))} | {float(r['Pts/36']):.1f} | "
+                    f"{float(r['Eff/36']):.1f} | {int(r['N'])} |\n"
+                )
+            f.write("\n")
+
+        f.write("## 6. 體力系統分析\n")
+        f.write("### 6.1 賽後體力分佈 (命中率影響)\n")
+        f.write("| 體力狀態 | 命中率 (FG%) | 出手樣本數 (FGA) |\n|---|---:|---:|\n")
+        
+        g_stam = box_df.groupby("st_bucket").agg(
+            FGM=("stat_fgm", "sum"),
+            FGA=("stat_fga", "sum"),
+        ).reset_index()
+        g_stam["FG%"] = g_stam.apply(lambda r: (r["FGM"] / r["FGA"]) if r["FGA"] > 0 else 0.0, axis=1)
+        
+        order = ["正常 (80-100)", "稍微疲累 (60-79)", "有點疲累 (40-59)", "疲累 (20-39)", "非常疲累 (1-19)"]
+        # Ensure ordering
+        g_stam["st_bucket"] = pd.Categorical(g_stam["st_bucket"], categories=order, ordered=True)
+        g_stam = g_stam.sort_values("st_bucket")
+        
+        for _, r in g_stam.iterrows():
+            f.write(f"| {r['st_bucket']} | **{_fmt_pct(float(r['FG%']))}** | {int(r['FGA'])} |\n")
+        f.write("\n")
+
+        f.write("## 7. 犯規系統\n")
+        f.write(f"- **平均單場個人犯規:** {avg_pf:.2f}\n")
+        f.write(f"- **單人單場最大犯規:** {max_pf}\n")
+        f.write(f"- **犯滿離場人次:** {fouled_out_cnt}\n\n")
+
+        f.write("### 7.1 各隊平均每場犯規次數\n")
+        for tid in team_ids:
+            f.write(f"- **{tid}:** {float(pf_team_avg.get(tid, 0.0)):.2f} 次/場\n")
+        f.write("\n")
+
+        f.write("### 7.2 犯規次數分佈 (Debug)\n")
+        for tid in team_ids:
+            f.write(f"#### 球隊: `{tid}`\n")
+            f.write("| 犯規次數 | 人次 | 異常標記 |\n|---:|---:|---|\n")
+            dist = pf_dist.get(tid, {})
+            for k in sorted(dist.keys()):
+                f.write(f"| {int(k)} | {int(dist[k])} |  |\n")
+            f.write("\n")
+
+        f.write("## 8. 每隊每回合花費時間切片分布與違例\n")
+        for tid in team_ids:
+            stats = poss_stats[tid]
+            total_poss = stats['count']
+            
+            f.write(f"### 球隊: `{tid}`\n")
+            f.write(f"- **8秒違例 (總計):** {int(v8.get(tid, 0))}\n")
+            f.write(f"- **24秒違例 (總計):** {int(v24.get(tid, 0))}\n")
+            f.write(f"- **平均時間:** {stats['mean']:.2f} 秒 (σ={stats['std']:.2f})\n\n")
+            
+            f.write("| 區間 | 次數 | 佔比 |\n|---|---:|---:|\n")
+            for i in range(24):
+                cnt = int(slice_counts[tid][i])
+                pct = cnt / total_poss if total_poss > 0 else 0
+                f.write(f"| {i}~{i+1} 秒 | {cnt} | {_fmt_pct(pct)} |\n")
+            f.write("\n")
+
+        f.write("## 9. 快攻數據詳情 (Team-Level)\n")
+        f.write("| 球隊 | 場均快攻出手 | 場均快攻得分 | 快攻命中率 | 快攻得分佔比 |\n|---|---:|---:|---:|---:|\n")
+        for _, r in t_agg.sort_values("team_id").iterrows():
+            fb_pts = r['FB_Made'] * 2 # 假設快攻都是2分
+            pts_pct = (fb_pts / r['PTS']) if r['PTS'] > 0 else 0
+            f.write(
+                f"| `{r['team_id']}` | {r['FB_Att']:.2f} | {fb_pts:.1f} | "
+                f"{_fmt_pct(float(r['FB%']))} | {_fmt_pct(pts_pct)} |\n"
+            )
+        f.write("\n")
+
+        f.write("## 10. 速度對球隊回合數 (Pace) 的影響\n")
+        f.write("> 註：平均速度改採「上場時間加權 (Minutes Weighted)」，更能反映場上實際陣容速度。\n\n")
+        f.write("| 球隊 | 加權平均速度 | 場均 Pace | 場均回合數 |\n|---|---:|---:|---:|\n")
+        for _, r in speed_df.iterrows():
+            f.write(f"| `{r['team_id']}` | {r['w_speed']:.1f} | {r['pace']:.2f} | {r['poss']:.2f} |\n")
+        f.write("\n")
+        
+        if len(speed_df) > 1:
+            corr = speed_df['w_speed'].corr(speed_df['pace'])
+            f.write(f"\n**加權速度與 Pace 的相關係數 (Correlation):** {corr:.4f}\n")
+            
+        f.write("\n## 11. 高階球員表現排行 (SSR/SS/S)\n")
+        f.write("> 依場均得分 (PPG) 排序，取前 20 名\n\n")
+        f.write("| 排名 | 球員 | 隊伍 | 位置 | 等級 | PPG | RPG | APG | FG% | MPG |\n")
+        f.write("|---:|---|---|---|---|---:|---:|---:|---:|---:|\n")
+        
+        rank = 1
+        for _, r in hg_stats.iterrows():
+            f.write(
+                f"| {rank} | {r['name']} | {r['team_id']} | {r['position']} | {r['grade']} | "
+                f"**{r['PPG']:.1f}** | {r['RPG']:.1f} | {r['APG']:.1f} | {_fmt_pct(r['FG%'])} | {r['MPG']:.1f} |\n"
+            )
+            rank += 1
+        f.write("\n")
+        
+        f.write("## 12. 違例詳細分析 (Distribution)\n")
+        for tid in team_ids:
+            f.write(f"### 球隊: `{tid}`\n")
+            d = vio_dist_data[tid]
+            
+            # 8s
+            f.write("**8秒違例單場次數分佈:**\n")
+            f.write("| 次數 | 場數 | 佔比 |\n|---:|---:|---:|\n")
+            total_g = sum(d['v8'].values())
+            for k, v in d['v8'].items():
+                if v > 0:
+                    f.write(f"| {k} 次 | {v} | {_fmt_pct(v/total_g)} |\n")
+            
+            # 24s
+            f.write("\n**24秒違例單場次數分佈:**\n")
+            f.write("| 次數 | 場數 | 佔比 |\n|---:|---:|---:|\n")
+            total_g = sum(d['v24'].values())
+            for k, v in d['v24'].items():
+                if v > 0:
+                    f.write(f"| {k} 次 | {v} | {_fmt_pct(v/total_g)} |\n")
+            f.write("\n")
+    
+    pbar.update(1) # Step 13 Done
+    pbar.close()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--parquet", type=str, default=DEFAULT_PARQUET)
+    parser.add_argument("--cycles", type=int, default=10, help="每 cycle 6 場；總場數=cycles*6")
+    parser.add_argument("--batch-size", type=int, default=50)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT)
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        rng.seed(args.seed)
+
+    run_id = now_id()
+    output_dir = os.path.join(PROJECT_ROOT, args.output_root, run_id)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    error_log_path = os.path.join(output_dir, "error_log.txt")
+
+    snapshot_dir = make_snapshot(output_dir)
+    print(f"[Snapshot] {snapshot_dir}")
+
+    config = load_config()
+    teams_src = load_teams(args.parquet)
+    team_ids = sorted(list(teams_src.keys()))
+    pairs = list(combinations(team_ids, 2))  # 4隊=6場
+
+    total_games = args.cycles * len(pairs)
+    print(f"[Run] cycles={args.cycles}, total_games={total_games}, batch_size={args.batch_size}")
+
+    proc = psutil.Process(os.getpid())
+    t0 = time.time()
+
+    # buffers
+    matches_rows: List[Dict[str, Any]] = []
+    team_game_rows: List[Dict[str, Any]] = []
+    box_rows: List[Dict[str, Any]] = []
+    poss_rows: List[Dict[str, Any]] = []
+
+    # batch files
+    mf, tf, bf, pf = [], [], [], []
+    batch_idx = 0
+    game_idx = 0
+
+    def flush():
+        nonlocal batch_idx, matches_rows, team_game_rows, box_rows, poss_rows
+        if not matches_rows:
+            return
+
+        try:
+            mdf = pd.DataFrame(matches_rows)
+            tdf = pd.DataFrame(team_game_rows)
+            bdf = pd.DataFrame(box_rows)
+            pdf = pd.DataFrame(poss_rows)
+
+            base = os.path.join(output_dir, "batches")
+            os.makedirs(base, exist_ok=True)
+            m_path = os.path.join(base, f"matches_{batch_idx:05d}.parquet")
+            t_path = os.path.join(base, f"team_game_stats_{batch_idx:05d}.parquet")
+            b_path = os.path.join(base, f"boxscores_{batch_idx:05d}.parquet")
+            p_path = os.path.join(base, f"possession_times_{batch_idx:05d}.parquet")
+
+            write_parquet(mdf, m_path)
+            write_parquet(tdf, t_path)
+            write_parquet(bdf, b_path)
+            write_parquet(pdf, p_path)
+
+            mf.append(m_path)
+            tf.append(t_path)
+            bf.append(b_path)
+            pf.append(p_path)
+
+            # Clear buffers
+            matches_rows = []
+            team_game_rows = []
+            box_rows = []
+            poss_rows = []
+
+            batch_idx += 1
+            
+            # [Forensic] Aggressive GC to prevent OOM
+            gc.collect()
+            
+        except Exception as e:
+            # [Forensic] Flush Isolation - Log and discard batch, do NOT crash main loop
+            err_msg = f"=== Flush Error at Batch {batch_idx} ===\n{traceback.format_exc()}\n"
+            tqdm.write(f"[Critical] Flush failed: {e}")
+            with open(error_log_path, "a", encoding="utf-8") as ef:
+                ef.write(err_msg)
+                ef.flush()
+                os.fsync(ef.fileno())
+            
+            # Discard buffers to prevent memory leak
+            matches_rows = []
+            team_game_rows = []
+            box_rows = []
+            poss_rows = []
+
+    pbar = tqdm(total=total_games, ncols=120)
+
+    try:
+        for _ in range(args.cycles):
+            for a_id, b_id in pairs:
+                game_idx += 1
+                game_id = f"{run_id}_G{game_idx:06d}"
+                
+                retries = 0
+                success = False
+                
+                while not success and retries < MAX_RETRIES_PER_GAME:
+                    try:
+                        team_a = clone_team(teams_src[a_id])
+                        team_b = clone_team(teams_src[b_id])
+
+                        engine = MatchEngine(team_a, team_b, config, game_id=game_id)
+                        result = engine.simulate()
+                        
+                        success = True
+
+                        a_8sec = int(result.home_violation_8s)
+                        a_24sec = int(result.home_violation_24s)
+                        b_8sec = int(result.away_violation_8s)
+                        b_24sec = int(result.away_violation_24s)
+
+                        matches_rows.append({
+                            "game_id": game_id,
+                            "team_a_id": team_a.id,
+                            "team_b_id": team_b.id,
+                            "team_a_score": int(result.home_score),
+                            "team_b_score": int(result.away_score),
+                            "is_ot": bool(result.is_ot),
+                            "total_quarters": int(result.total_quarters),
+                            "pace": float(result.pace),
+                            "team_a_possessions": int(result.home_possessions),
+                            "team_b_possessions": int(result.away_possessions),
+                            "team_a_fb_made": int(result.home_fb_made),
+                            "team_a_fb_attempt": int(result.home_fb_attempt),
+                            "team_b_fb_made": int(result.away_fb_made),
+                            "team_b_fb_attempt": int(result.away_fb_attempt),
+                            "team_a_violation_8s": a_8sec,
+                            "team_a_violation_24s": a_24sec,
+                            "team_b_violation_8s": b_8sec,
+                            "team_b_violation_24s": b_24sec,
+                        })
+
+                        a_poss = int(result.home_possessions)
+                        b_poss = int(result.away_possessions)
+
+                        a_pts = int(result.home_score)
+                        b_pts = int(result.away_score)
+                        
+                        base_row = {
+                            "game_id": game_id,
+                            "pace": float(result.pace),
+                            "is_ot": bool(result.is_ot),
+                            "total_quarters": int(result.total_quarters),
+                        }
+                        
+                        team_game_rows.append({
+                            **base_row,
+                            "team_id": team_a.id,
+                            "opponent_team_id": team_b.id,
+                            "points": a_pts,
+                            "opp_points": b_pts,
+                            "possessions": a_poss,
+                            "sec_per_poss": float(team_a.stat_possession_seconds / a_poss) if a_poss > 0 else 0.0,
+                            "ortg": calc_orating(a_pts, a_poss),
+                            "drtg": calc_orating(b_pts, a_poss),
+                            "net": calc_orating(a_pts, a_poss) - calc_orating(b_pts, a_poss),
+                            "fb_made": int(result.home_fb_made),
+                            "fb_attempt": int(result.home_fb_attempt),
+                            "violation_8s": a_8sec,
+                            "violation_24s": a_24sec,
+                        })
+                        
+                        team_game_rows.append({
+                            **base_row,
+                            "team_id": team_b.id,
+                            "opponent_team_id": team_a.id,
+                            "points": b_pts,
+                            "opp_points": a_pts,
+                            "possessions": b_poss,
+                            "sec_per_poss": float(team_b.stat_possession_seconds / b_poss) if b_poss > 0 else 0.0,
+                            "ortg": calc_orating(b_pts, b_poss),
+                            "drtg": calc_orating(a_pts, b_poss),
+                            "net": calc_orating(b_pts, b_poss) - calc_orating(a_pts, b_poss),
+                            "fb_made": int(result.away_fb_made),
+                            "fb_attempt": int(result.away_fb_attempt),
+                            "violation_8s": b_8sec,
+                            "violation_24s": b_24sec,
+                        })
+
+                        box_rows.extend(extract_box_rows(game_id, team_a, team_b.id))
+                        box_rows.extend(extract_box_rows(game_id, team_b, team_a.id))
+
+                        poss_rows.extend(extract_possession_rows(game_id, team_a, team_b.id))
+                        poss_rows.extend(extract_possession_rows(game_id, team_b, team_a.id))
+
+                    except BaseException as e: # [Forensic] Catch everything including SystemExit/KeyboardInterrupt
+                        retries += 1
+                        error_msg = traceback.format_exc()
+                        tqdm.write(f"[Warning] Game {game_id} failed (Retry {retries}/{MAX_RETRIES_PER_GAME})")
+                        
+                        with open(error_log_path, "a", encoding="utf-8") as ef:
+                            ef.write(f"=== Error in {game_id} (Retry {retries}/{MAX_RETRIES_PER_GAME}) ===\n")
+                            ef.write(f"Teams: {a_id} vs {b_id}\n")
+                            ef.write(error_msg)
+                            ef.write("\n" + "="*50 + "\n")
+                            ef.flush()
+                            os.fsync(ef.fileno())
+                        
+                        if isinstance(e, KeyboardInterrupt):
+                            raise e
+
+                if not success:
+                    tqdm.write(f"[CRITICAL] Game {game_id} failed after {MAX_RETRIES_PER_GAME} retries.")
+
+                # Update Progress & Resource Monitor
+                if game_idx == 1 or game_idx % 100 == 0:
+                    cpu = psutil.cpu_percent(interval=None)
+                    ram_mb = proc.memory_info().rss / (1024**2)
+                    elapsed = time.time() - t0
+                    pbar.set_postfix({"CPU%": f"{cpu:.0f}", "RAM(MB)": f"{ram_mb:.0f}", "Elapsed(s)": f"{elapsed:.0f}"})
+
+                pbar.update(1)
+
+                if game_idx % args.batch_size == 0:
+                    flush()
+
+        # Final flush
+        flush()
+        
+    except KeyboardInterrupt:
+        tqdm.write("\n[Stopped] User interrupted.")
+        flush()
+    except BaseException as e: # [Forensic] Catch ALL, including SystemExit
+        tqdm.write(f"\n[CRITICAL ERROR] Main loop crashed: {e}")
+        with open(error_log_path, "a", encoding="utf-8") as ef:
+            ef.write(f"=== CRITICAL MAIN LOOP CRASH ===\n{traceback.format_exc()}\n")
+            ef.flush()
+            os.fsync(ef.fileno())
+    finally:
+        pbar.close()
+
+    # merge outputs
+    out_matches = os.path.join(output_dir, "matches.parquet")
+    out_team = os.path.join(output_dir, "team_game_stats.parquet")
+    out_box = os.path.join(output_dir, "boxscores.parquet")
+    out_poss = os.path.join(output_dir, "possession_times.parquet")
+
+    print("\n[Merging] Consolidating batch files...")
+    if mf:
+        concat_parquets(mf, out_matches)
+        concat_parquets(tf, out_team)
+        concat_parquets(bf, out_box)
+        concat_parquets(pf, out_poss)
+
+        print(f"\n[Loading] Reading merged dataframes...")
+        matches_df = pd.read_parquet(out_matches)
+        team_df = pd.read_parquet(out_team)
+        box_df = pd.read_parquet(out_box)
+        poss_df = pd.read_parquet(out_poss)
+
+        report_path = os.path.join(output_dir, "report.md")
+        build_report(
+            report_path=report_path,
+            run_id=run_id,
+            config=config,
+            teams_src=teams_src,
+            matches_df=matches_df,
+            team_df=team_df,
+            box_df=box_df,
+            poss_df=poss_df,
+        )
+
+        cpu = psutil.cpu_percent(interval=None)
+        ram_mb = proc.memory_info().rss / (1024**2)
+        elapsed = time.time() - t0
+
+        print("\n=== DONE ===")
+        print(f"run_id: {run_id}")
+        print(f"output_dir: {output_dir}")
+        print(f"matches: {matches_df.shape[0]}")
+        print(f"team_game_stats: {team_df.shape[0]}")
+        print(f"possession_rows: {poss_df.shape[0]}")
+        print(f"report: {report_path}")
+        print(f"CPU%: {cpu:.0f}  RAM(MB): {ram_mb:.0f}  elapsed(s): {elapsed:.1f}")
+    else:
+        print("\n[Warning] No data generated. Check error logs.")
+
+
+if __name__ == "__main__":
+    try:
+        # Optional: Clear terminal for cleaner output
+        from scripts.terminal import clear_terminal
+        clear_terminal()
+        pass
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    main()
 
 ============================================================
 

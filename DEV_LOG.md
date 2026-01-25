@@ -567,3 +567,45 @@
 
 --
 
+## 2026-01-25 10:00 ：比賽引擎 v2.4 違例機制與速度節奏優化 (Match Engine v2.4 Violations & Speed/Pace)
+
+### ✅ 進度摘要
+本次更新將比賽引擎推進至 **v2.4** 版本，核心目標是強化「速度屬性」對比賽節奏的實質影響，並補完籃球規則中的違例機制。實作了 **速度折扣 (Speed Discount)** 機制，讓速度快的球隊能以更短時間完成推進與進攻，進而提升回合數 (Pace)。同時，新增了 **8秒違例** 與 **24秒違例** 的判定邏輯，完善了失誤 (Turnover) 的類型。最後，更新了大數據測試腳本，以驗證新機制的數值分佈。
+
+### 🛠️ 技術細節
+
+1.  **比賽引擎核心邏輯 (`app/services/match_engine/core.py`)**
+    - **速度折扣 (Speed Discount)**:
+        - 在 `_run_backcourt` (後場) 與 `_run_frontcourt` (前場) 階段引入新公式。
+        - **機制**: 計算進攻方場上球員的平均速度，依據 Config 定義的係數 (`speed_discount_coeff`) 隨機扣除消耗時間。
+        - **效益**: 速度越快的球隊，單一回合消耗時間越短，整場比賽的總回合數 (Possessions) 自然提升，解決了先前 Pace 與 Speed 相關性不足的問題。
+    - **違例判定 (Violations)**:
+        - **8秒違例**: 若後場推進時間 > 8.0 秒，觸發 `record_8sec_violation` 並轉換球權。
+        - **24秒違例**: 若 (後場時間 + 前場時間) > 24.0 秒，觸發 `record_24sec_violation` 並轉換球權。
+
+2.  **數據結構與歸屬 (`structures.py` & `attribution.py`)**
+    - **結構擴充**: 在 `EngineTeam` 與 `MatchResult` 中新增 `stat_violation_8s` 與 `stat_violation_24s` 欄位。
+    - **歸屬邏輯**: 新增專屬的記錄方法，將違例計入「團隊失誤 (Team Turnover)」，不影響球員個人失誤數據。
+
+3.  **配置檔更新 (`config/game_config.yaml`)**
+    - **Backcourt**: 新增 `speed_discount_coeff` (預設 0.1) 與 `violation_threshold` (8.0)。
+    - **Frontcourt**: 新增 `speed_discount_coeff` (預設 0.01) 與 `violation_threshold` (24.0)。
+    - **物理限制**: 設定了時間計算的物理下限 (`min_time_limit`)，防止因折扣過大導致時間為負。
+
+4.  **大數據測試工具 (`tests/match_bigdata_test/run_core_bigdata_test.py`)**
+    - **報告升級**: 
+        - 新增「速度對球隊回合數 (Pace) 的影響」分析章節，計算加權速度與 Pace 的相關係數。
+        - 新增「違例詳細分析」章節，統計 8秒/24秒違例的發生頻率與佔比。
+    - **穩定性優化**: 引入 `faulthandler` 與 Flush 隔離機制，防止單一場次模擬失敗導致整個測試中斷。
+
+### 📝 筆記
+- **平衡性觀察**: 初步測試顯示，引入速度折扣後，高速度球隊的 Pace 明顯提升，且 24 秒違例通常發生在防守壓迫極強或進攻方速度極慢的極端對局中，符合預期。
+- **數據驗證**: 需持續觀察違例發生的機率是否過高 (例如超過總回合數的 5%)，若過高則需微調 `time_base` 或 `violation_threshold`。
+
+### 🔜 下一步計畫
+- **修正程式碼內與技術文件不符合的內容**: 全面盤點 Codebase 與 Spec 文件的差異並進行同步。
+- **球員命名規則**: 優化姓名生成庫，可能引入更多樣化的命名邏輯。
+- **程式更新修正**: 針對測試中發現的微小 Bug 進行修復。
+
+--
+

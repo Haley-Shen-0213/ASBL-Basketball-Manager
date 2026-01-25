@@ -1,0 +1,40 @@
+# tests/player_generator_big_data/test_config.yaml
+
+execution:
+  # 試跑次數 (用於計算預估時間)
+  dry_run_count: 300000
+  
+  # 並行運算設定
+  # i9-14900K (24 Cores / 32 Threads)
+  # 建議保留一些核心給 OS 與背景作業，設為 20-24 效果最佳
+  max_workers: 24
+  
+  # 切片大小
+  # 每個 Worker 每次回傳的筆數。
+  # 128GB RAM 可以設大一點 (50000-100000) 以減少 I/O 頻率
+  batch_size_per_task: 100000
+
+output:
+  # 資料存放目錄 (相對於 tests/player_generator_big_data/)
+  data_dir: "data"
+  logs_dir: "logs"
+  report_dir: "reports"
+  
+  # 壓縮格式 (snappy 速度最快，適合大數據暫存)
+  compression: "snappy"
+
+validation:
+  # [新增需求] 等級機率與容許誤差
+  grade_distribution:
+    G:   { target: 0.280, tolerance: 0.010 }
+    C:   { target: 0.260, tolerance: 0.010 }
+    B:   { target: 0.220, tolerance: 0.010 }
+    A:   { target: 0.140, tolerance: 0.010 }
+    S:   { target: 0.070, tolerance: 0.005 }
+    SS:  { target: 0.025, tolerance: 0.005 }
+    SSR: { target: 0.005, tolerance: 0.001 }
+
+  # 身高分佈理論值 (用於報告比較)
+  height_distribution:
+    mean: 195
+    std_dev: 10

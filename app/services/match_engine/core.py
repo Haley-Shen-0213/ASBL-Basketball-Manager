@@ -286,7 +286,14 @@ class MatchEngine:
             home_possession_history=self.home_team.stat_possession_history,
             away_possession_history=self.away_team.stat_possession_history,
             home_avg_seconds_per_poss=(self.home_team.stat_possession_seconds / self.home_team.stat_possessions) if self.home_team.stat_possessions > 0 else 0.0,
-            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0
+            away_avg_seconds_per_poss=(self.away_team.stat_possession_seconds / self.away_team.stat_possessions) if self.away_team.stat_possessions > 0 else 0.0,
+            
+            # =========== [FIX START] 補上違例數據 ===========
+            home_violation_8s=self.home_team.stat_violation_8s,
+            home_violation_24s=self.home_team.stat_violation_24s,
+            away_violation_8s=self.away_team.stat_violation_8s,
+            away_violation_24s=self.away_team.stat_violation_24s
+            # =========== [FIX END] ========================
         )
 
     def _jump_ball(self) -> str:
@@ -528,11 +535,31 @@ class MatchEngine:
             final_time = params.get('opening_seconds', 2.0)
         else:
             base = rng.get_float(params.get('time_base_min', 1.0), params.get('time_base_max', 8.0))
-            final_time = max(0.5, min(8.1, base + (def_sum - off_sum) * params.get('time_coeff', 0.008)))
+            diff_mod = (def_sum - off_sum) * params.get('time_coeff', 0.008)
+            
+            # [New v2.4] 速度折扣
+            spd_formula = formulas.get('backcourt_speed', ['ath_speed'])
+            spd_sum_off = Calculator.get_team_attr_sum(off_team.on_court[:3], spd_formula, attr_pools)
+            avg_spd_off = spd_sum_off / 3.0 if spd_sum_off > 0 else 50.0
+            spd_sum_def = Calculator.get_team_attr_sum(def_team.on_court[:3], spd_formula, attr_pools)
+            avg_spd_def = spd_sum_def / 3.0 if spd_sum_def > 0 else 50.0
+            
+            discount_coeff = params.get('speed_discount_coeff', 0.1)
+            discount_coeff_def = params.get('speed_discount_coeff_def', 0.5)
+            discount_off = rng.get_float(0.0, avg_spd_off * discount_coeff)
+            discount_def = rng.get_float(0.0, avg_spd_def * discount_coeff) * discount_coeff_def
+            
+            final_time = base + diff_mod - discount_off + discount_def
+            
+            # 物理下限
+            min_limit = params.get('min_time_limit', 0.5)
+            final_time = max(min_limit, final_time)
 
-        # Events
+        # 2. 8秒違例判定 (修改記錄方法)
         if final_time > params.get('violation_threshold', 8.0):
-            AttributionSystem.record_team_turnover(off_team)
+            # [Modified] 改用專屬的 8秒違例記錄方法
+            AttributionSystem.record_8sec_violation(off_team)
+            final_time = 8.0
             return final_time, 'turnover', f"{off_team.name} 8-sec Violation"
         
         # [Modified] 抄截判定
@@ -566,14 +593,21 @@ class MatchEngine:
                     # 觸發陣地戰 (直接進前場)
                     return final_time, 'steal_frontcourt', f"{def_team.name} Steal & Transition"
 
-        # [修正縮排] 快攻判定應與上方的抄截判定同層級
+        # 快攻判定：需同時滿足「時間門檻」與「機率檢定」
+        # 1. 檢查時間是否夠快
         if final_time < params.get('fastbreak_threshold', 1.0):
-            return self._run_fastbreak(off_team, def_team, final_time)
+            # 2. 取得觸發機率 (預設 0.5)
+            fb_prob = params.get('fastbreak_trigger_prob', 0.5)
+            
+            # 3. 進行機率骰子 (rng.random() 會回傳 0.0 ~ 1.0 之間的浮點數)
+            if rng.decision(fb_prob):
+                return self._run_fastbreak(off_team, def_team, final_time)
         
         return final_time, 'frontcourt', "Advance"
 
     def _run_frontcourt(self, off_team: EngineTeam, def_team: EngineTeam, elapsed_bc: float):
-        """(Spec 4) 前場"""
+        """(Spec 4) 前場階段 [Update v2.4 速度折扣 & 24秒違例]"""
+        # 1. 讀取設定檔參數
         fc_config = self.config.get('match_engine', {}).get('frontcourt', {})
         params = fc_config.get('params', {})
         formulas = fc_config.get('formulas', {})
@@ -581,41 +615,158 @@ class MatchEngine:
         
         ctx = {'quality': 0.0, 'spacing': 0.0}
         
-        # Time & Quality
+        # 2. 時間計算 (Time Calculation)
+        # 計算基於智商與傳導的時間縮減量
         red_attr = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('time_reduction', []), attr_pools), attr_pools)
         reduction = (red_attr / 1000.0) * 0.5
         min_time = max(4.0, 4.0 - reduction)
-        elapsed = rng.get_float(min_time, max(min_time+1, 24.0-elapsed_bc))
-        if elapsed < 7.0: ctx['quality'] = (7.0 - elapsed) * 0.01
         
-        # Spacing
+        # 計算本回合剩餘可用的進攻時間上限 (24秒 - 後場已用時間)
+        # 確保上限至少比下限大 1.0 秒，避免隨機錯誤
+        max_time = max(min_time + 1.0, 24.0 - elapsed_bc)
+        
+        # 初步隨機產生花費時間
+        elapsed = rng.get_float(min_time, max_time)
+        
+        # [New v2.4] 速度折扣 (Speed Discount)
+        # 計算進攻方場上 5 人的速度總和
+        spd_formula = formulas.get('frontcourt_speed', ['ath_speed'])
+        spd_sum_off = Calculator.get_team_attr_sum(off_team.on_court, spd_formula, attr_pools)
+        avg_spd_off = spd_sum_off / 5.0 if spd_sum_off > 0 else 50.0
+        spd_sum_def = Calculator.get_team_attr_sum(def_team.on_court, spd_formula, attr_pools)
+        avg_spd_def = spd_sum_def / 5.0 if spd_sum_def > 0 else 50.0
+        
+        # 計算折扣秒數 (速度越快，花費時間越少)
+        discount_coeff = params.get('speed_discount_coeff', 0.1)
+        discount_off = rng.get_float(0.0, avg_spd_off * discount_coeff)
+        discount_def = rng.get_float(0.0, avg_spd_def * discount_coeff)
+        
+        # 應用折扣
+        elapsed -= discount_off
+        elapsed += discount_def
+        
+        # 確保物理時間下限 (不能低於 1.0 秒)
+        abs_min = params.get('absolute_min_time', 1.0)
+        elapsed = max(abs_min, elapsed)
+        
+        # 3. 24秒違例判定 (24-Sec Violation)
+        # 若 (後場時間 + 前場時間) 超過 24 秒，則判定違例
+        violation_limit = params.get('violation_threshold', 24.0)
+        if (elapsed_bc + elapsed) > violation_limit:
+            AttributionSystem.record_24sec_violation(off_team)
+            elapsed = 24.0
+            return elapsed, 'turnover', f"{off_team.name} 24秒進攻違例", ctx
+
+        # 4. 計算出手品質 (Quality)
+        # 時間花費越少，品質越高 (代表跑出空檔或流暢配合)
+        if elapsed < 7.0: 
+            ctx['quality'] = (7.0 - elapsed) * 0.01
+        
+        # 5. 空間與跑位判定 (Spacing)
         off_sp = Calculator.get_team_attr_sum(off_team.on_court, self._resolve_formula(formulas.get('spacing_off', []), attr_pools), attr_pools)
         def_sp = Calculator.get_team_attr_sum(def_team.on_court, self._resolve_formula(formulas.get('spacing_def', []), attr_pools), attr_pools) or 1
+        
+        # 計算空間加成 (-1.0 ~ 1.0)
         sp_bonus = max(-1.0, min(1.0, (off_sp - def_sp)/def_sp + rng.get_float(-0.1, 0.1)))
         ctx['spacing'] = sp_bonus
 
-        # Block (Spec 4.3)
+        # 6. 封阻判定 (Block - Spec 4.3)
+        # 若空間擁擠 (sp_bonus <= 0.5)，封阻機率提升
         if sp_bonus <= 0.5:
-            blk_prob = 0.01 + (0.05 if sp_bonus < 0 else 0)
-            if rng.decision(blk_prob):
-                # Block Success Check
-                trigger_off_f = self._resolve_formula(formulas.get('block', {}).get('formulas', {}).get('trigger_off', []), attr_pools)
-                trigger_def_f = self._resolve_formula(formulas.get('block', {}).get('formulas', {}).get('trigger_def', []), attr_pools)
+            # --- 階段一：觸發判定 (Attempt Check) ---
+            blk_config = formulas.get('block', {})
+            blk_params = blk_config.get('params', {}) # 注意: YAML結構可能在 frontcourt.block 下
+            # 若讀取不到，嘗試從外層讀取 (視 YAML 結構而定，這裡假設在 frontcourt.block)
+            if not blk_config:
+                blk_config = formulas.get('block', {}) # Retry
+            
+            # 讀取公式 Key
+            blk_formulas = blk_config.get('formulas', {})
+            trigger_off_keys = self._resolve_formula(blk_formulas.get('trigger_off', ['off_move']), attr_pools)
+            trigger_def_keys = self._resolve_formula(blk_formulas.get('trigger_def', ['def_contest', 'talent_defiq']), attr_pools)
+            
+            # 計算團隊觸發值 (Team Sum)
+            trig_off_val = Calculator.get_team_attr_sum(off_team.on_court, trigger_off_keys, attr_pools)
+            trig_def_val = Calculator.get_team_attr_sum(def_team.on_court, trigger_def_keys, attr_pools)
+            
+            # 計算機率
+            # 基礎機率 1%
+            base_prob = blk_config.get('params', {}).get('base_prob', 0.01)
+            # 屬性修正: (防守 - 進攻) * 0.0001 (每100點差值+1%)
+            attr_mod = (trig_def_val - trig_off_val) * 0.0001
+            # 空間懲罰: 空間擁擠時大幅提升封蓋率
+            spacing_penalty = blk_config.get('params', {}).get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
+            
+            attempt_prob = max(0.0, base_prob + attr_mod + spacing_penalty)
+            
+            if rng.decision(attempt_prob):
+                # --- 階段二：對抗判定 (Success Check) ---
                 
-                blocker = AttributionSystem.determine_rebounder(off_team, def_team, True, self.config) 
-                shooter = AttributionSystem.determine_shooter(off_team, False, self.config) 
+                # 1. 決定角色
+                # 預測出手者 (Shooter)
+                shooter = AttributionSystem.determine_shooter(off_team, False, self.config)
+                # 決定對位防守者 (Blocker) - 依據 Spec 6.6 封蓋歸屬規則
+                blocker = AttributionSystem.get_position_matchup(shooter, def_team)
                 
-                AttributionSystem.record_block(blocker, shooter)
-                return elapsed, 'turnover', f"{def_team.name} Block", ctx
+                # 2. 計算對抗能力 (Power)
+                power_off_keys = self._resolve_formula(blk_formulas.get('power_off', ['ath_strength', 'ath_jump', 'talent_offiq', 'height']), attr_pools)
+                power_def_keys = self._resolve_formula(blk_formulas.get('power_def', ['ath_strength', 'ath_jump', 'def_contest', 'talent_defiq', 'height']), attr_pools)
+                
+                p_off = Calculator.get_player_attr_sum(shooter, power_off_keys, attr_pools)
+                p_def = Calculator.get_player_attr_sum(blocker, power_def_keys, attr_pools)
+                
+                # 3. 計算成功率
+                # Spec: Ratio = Off / Def. 數值越低防守優勢越大.
+                # 轉換為機率: Def / (Off + Def)
+                # 若 Off=500, Def=500 -> 50% 機率蓋掉
+                # 若 Off=400, Def=600 -> 60% 機率蓋掉
+                success_prob = p_def / (p_off + p_def) if (p_off + p_def) > 0 else 0.5
+                
+                if rng.decision(success_prob):
+                    # 封蓋成功 -> 失誤
+                    AttributionSystem.record_block(blocker, shooter)
+                    return elapsed, 'turnover', f"{def_team.name} {blocker.name} 封阻成功 (Block {shooter.name})", ctx
+                else:
+                    # 封蓋失敗 -> 進攻方強行出手 (繼續流程)
+                    # 可以在 ctx 中標記 'contested'，影響後續命中率或犯規率 (Optional)
+                    ctx['is_contested'] = True
+                    # Log (Optional)
+                    # print(f"Block Attempt Failed: {shooter.name} powered through {blocker.name}")
+                    pass
 
-        # Steal (Spec 4.4)
-        stl_prob = 0.01
-        if rng.decision(stl_prob):
+        # 7. 抄截判定 (Steal - Spec 4.4 Full Implementation)
+        # 讀取設定
+        stl_config = fc_config.get('steal', {})
+        stl_params = stl_config.get('params', {})
+        stl_formulas = stl_config.get('formulas', {})
+
+        # 1. 解析屬性公式 (Spec: Off_Ball vs Def_Steal)
+        # 預設值對應 YAML: off_dribble+off_handle+off_pass+off_iq-height
+        off_keys = self._resolve_formula(stl_formulas.get('off_attr', []), attr_pools)
+        # 預設值對應 YAML: speed+def_disrupt+def_iq-height
+        def_keys = self._resolve_formula(stl_formulas.get('def_attr', []), attr_pools)
+
+        # 2. 計算團隊屬性總和
+        # 這裡使用團隊總和來代表當下防守壓迫力與進攻穩定度
+        off_val = Calculator.get_team_attr_sum(off_team.on_court, off_keys, attr_pools)
+        def_val = Calculator.get_team_attr_sum(def_team.on_court, def_keys, attr_pools)
+
+        # 3. 計算最終機率
+        base_prob = stl_params.get('base_prob', 0.01)       # 基礎 1%
+        coeff = stl_params.get('stat_diff_coeff', 0.001)    # 係數 0.1%
+        
+        # 公式: 1% + (Def_Steal - Off_Ball) * 係數
+        final_prob = max(0.001, base_prob + (def_val - off_val) * coeff)
+
+        if rng.decision(final_prob):
+            # 決定抄截者 (Spec 6.5)
             stealer = AttributionSystem.determine_stealer(def_team, self.config)
+            # 記錄抄截與失誤 (Spec 6.7)
             AttributionSystem.record_steal(stealer, off_team)
-            return elapsed, 'turnover', f"{def_team.name} Frontcourt Steal", ctx
+            return elapsed, 'turnover', f"{def_team.name} {stealer.name} 前場抄截", ctx
 
-        return elapsed, 'shooting', "Shot Attempt", ctx
+        # 8. 進入投籃階段
+        return elapsed, 'shooting', "投籃出手", ctx
 
     def _run_fastbreak(self, off_team: EngineTeam, def_team: EngineTeam, elapsed: float) -> Tuple[float, str, str]:
         """

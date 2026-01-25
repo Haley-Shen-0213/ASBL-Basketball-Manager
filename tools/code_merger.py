@@ -55,6 +55,9 @@ SPECIFIC_FILES = [
     # --- 比賽引擎工具 (Match Engine Utils) ---
     "app/services/match_engine/utils/calculator.py",
     "app/services/match_engine/utils/rng.py",
+
+    # --- 比賽引擎測試工具 (Match Engine Test Utils) ---
+    "tests/match_bigdata_test/run_core_bigdata_test.py",
 ]
 
 # ==========================================

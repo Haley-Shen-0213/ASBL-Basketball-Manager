@@ -116,7 +116,11 @@ class EngineTeam:
     
     # 團隊統計 (Spec 7.3)
     score: int = 0
-    stat_tov: int = 0 # 團隊失誤 (如 8秒違例)
+    stat_tov: int = 0 # 團隊失誤 (如 8秒違例/24秒違例)
+    
+    # [New v2.4] 違例統計
+    stat_violation_8s: int = 0
+    stat_violation_24s: int = 0
     
     # [Phase 2 新增] 進階團隊數據
     stat_possessions: int = 0 # 回合數 (用於計算 Pace)
@@ -170,5 +174,8 @@ class MatchResult:
     away_fb_made: int = 0
     away_fb_attempt: int = 0
     
-    # 註：快攻成功率 (Success Rate) 可在資料庫層級透過 made/attempt 計算，
-    # 不需在此儲存浮點數，以節省空間。
+    # [New v2.4] 違例統計 (Team Level)
+    home_violation_8s: int = 0
+    home_violation_24s: int = 0
+    away_violation_8s: int = 0
+    away_violation_24s: int = 0

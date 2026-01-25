@@ -282,17 +282,23 @@ match_engine:
   # === 後場階段 (Backcourt Phase) [Spec v1.4 Section 3] ===
   backcourt:
     params:
-      time_base_min: 1.0         # 基礎過半場時間下限 (秒)
-      time_base_max: 8.0         # 基礎過半場時間上限 (秒)
+      time_base_min: 3.5         # 基礎過半場時間下限 (秒)
+      time_base_max: 4.5         # 基礎過半場時間上限 (秒)
       time_coeff: 0.008          # 時間修正係數: (防守總值 - 進攻總值) * 0.008
       violation_threshold: 8.0   # 超過此秒數 -> 8秒違例 (失誤)
       steal_threshold: 3.0       # 超過此秒數 -> 觸發後場抄截判定
       fastbreak_threshold: 1.5   # 低於此秒數 -> 觸發快攻判定
+      fastbreak_trigger_prob: 0.4 # [New] 滿足時間門檻後，實際觸發快攻的機率 (50%)
       steal_base_prob: 0.01      # 後場抄截基礎機率 (1%)
       steal_bonus_coeff: 0.001   # 抄截機率加成: (防守差值) * 0.1%
       
       # [v2.3] 抄截轉換設定
       transition_base_prob: 0.50   # 基礎機率 50%
+      
+      # [New v2.4] 速度折扣參數
+      speed_discount_coeff: 0.1  # 折扣係數 (Random(0, AvgSpeed * coeff))
+      speed_discount_coeff_def: 0.5  # 防守方折扣係數 
+      min_time_limit: 0.5        # 後場時間物理下限
 
     formulas:
       # [Spec 3.1] 屬性池 (增加身高懲罰)
@@ -303,6 +309,9 @@ match_engine:
       steal_def: ['def_disrupt', 'def_contest', 'talent_defiq', '-height']  # 抄截者的攻擊屬性
       # [v2.3] 轉換判定用的速度總和 (全隊)
       team_speed_sum: ['ath_speed']
+      
+      # [New v2.4] 後場速度折扣計算用 (3人)
+      backcourt_speed: ['ath_speed']
 
     # [Spec v1.4 Section 3.5] 快攻判定
     fastbreak:
@@ -331,6 +340,11 @@ match_engine:
       time_min_limit: 4.0        # 前場進攻時間下限 (最快4秒出手)
       time_quality_base: 7.0     # 品質基準秒數 (低於7秒開始有命中加成)
       spacing_bonus_coeff: 0.1   # 空間加成權重 (10%)
+      
+      # [New v2.4] 速度折扣與違例參數
+      speed_discount_coeff: 0.01  # 折扣係數
+      violation_threshold: 24.0  # 24秒違例總時間閾值
+      absolute_min_time: 0.4     # 前場時間物理下限
     
     formulas:
       # [Spec 4.1] 時間下限修正 (團隊屬性)
@@ -339,6 +353,9 @@ match_engine:
       # [Spec 4.2] 空間與跑位
       spacing_off: ['off_move', 'talent_offiq'] # 進攻方製造空間的屬性
       spacing_def: ['off_move', 'talent_defiq'] # 防守方壓縮空間的屬性
+      
+      # [New v2.4] 前場速度折扣計算用 (5人)
+      frontcourt_speed: ['ath_speed']
 
     # [Spec v1.4 Section 4.3] 封蓋判定
     block:

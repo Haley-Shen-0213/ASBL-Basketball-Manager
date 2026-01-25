@@ -1,8 +1,8 @@
-# ASBL 比賽引擎規格書 (v2.3) ASBL_Match_Engine_Specification.md
+# ASBL 比賽引擎規格書 (v2.4) ASBL_Match_Engine_Specification.md
 
-**版本**：2.3
+**版本**：2.4
 **狀態**：已確認 (Confirmed)
-**最後更新**2026-01-07
+**最後更新**2026-01-23
 **變更記錄**：
 *   **v1.0 (2025-12-04)**：初始版本
 *   **v1.2 (2025-12-07)**：體力消耗公式係數調整、基礎命中率調整 (Base Shooting Percentage)
@@ -25,6 +25,12 @@
     *   **新增**: 投籃命中率公式加入 **技巧加成 (Skill Bonus)** 機制，公式為 `1 + (accuracy+range+off_move)/800`，強化高數值射手優勢，並且將三分加成同步加上 `off_move`。
 *   **v2.3 (2026-01-07)**：
     *   **新增**: 抄截後的攻守轉換。
+*   **v2.4 (2026-01-23)**：
+    *   **調整**: 後場時間計算加入 **速度折扣 (Speed Discount)** 機制。
+    *   **新增**: 後場 **8秒違例** 判定規則。
+    *   **調整**: 前場時間計算加入 **速度折扣 (Speed Discount)** 機制。
+    *   **新增**: 全場 **24秒違例** 判定規則。
+    *   **更新**: Section 7 輸出數據定義，補全 Pace、快攻、+/- 值與進階團隊數據。
 
 ---
 
@@ -196,15 +202,17 @@
 *   **屬性池**: **[New v2.1 增加身高修正]**
     *   `進攻總值 (Off_Sum)` = 3 人的 (運球 + 傳球 + 進攻智商 - 身高) 總和。
     *   `防守總值 (Def_Sum)` = 3 人的 (抄截 + 干擾 + 防守智商 - 身高) 總和。
+    *   `後場速度總值 (Backcourt_Speed_Sum)` = 進攻方 3 人的 `速度 (ath_speed)` 總和。 **[New v2.4]**
 
-### 3.2 時間計算 (Time Calculation)
+### 3.2 時間計算 (Time Calculation) [Update v2.4]
 1.  **基礎時間**: 隨機骰 **1.0 ~ 8.0** 秒 (取至小數點第一位)。
-2.  **時間修正**:
-    *   **公式**: `修正秒數 = (Def_Sum - Off_Sum) * 0.008`
-    *   *說明*: 原係數 0.01 的 80%。
-    *   *範例*: 數值差 100 點 -> 影響 0.8 秒。
-3.  **最終時間**: `基礎時間 + 修正秒數`。
-    *   **上下限**: 鎖定在 **0.5 ~ 8.1** 秒之間。
+2.  **對抗修正**:
+    *   `對抗修正秒數 = (Def_Sum - Off_Sum) * 0.008`
+3.  **速度折扣 (Speed Discount)**:
+    *   `折扣秒數 = Random(0, (Backcourt_Speed_Sum / 3) * 0.01)`
+    *   *說明*: 速度越快，隨機扣除的時間越多，使推進更迅速。
+4.  **最終時間**: `基礎時間 + 對抗修正秒數 - 折扣秒數`。
+    *   **下限**: 鎖定在 **0.5** 秒 (物理極限)。
 
 ### 3.3 事件判定
 根據 `最終時間` 觸發對應事件：
@@ -273,14 +281,23 @@
 
 ## 4. 比賽引擎：前場階段 (Frontcourt Phase)
 
-### 4.1 進攻時間與出手品質
+### 4.1 進攻時間與出手品質 [Update v2.4]
 *   **基礎時間範圍**: `8.0` ~ `上限` 秒。
     *   **上限**: 一般回合為 `24.0 - 後場花費時間`；前場籃板回合為 `14.0`。
 *   **時間下限修正**:
-    *   **影響屬性**: `速度` (不可訓練), `進攻智商` (不可訓練), `傳球` (可訓練)。
+    *   **影響屬性**: `速度`, `進攻智商`, `傳球`。
     *   **邏輯**: 團隊上述三項屬性越高，能降低時間花費的下限 (最低不低於 4.0 秒)。
-*   **實際花費時間**: 在 `修正後下限` 與 `上限` 之間隨機產生。
-*   **出手品質加成**: 時間花費越少 -> 出手品質加成越高，實際公式：時間加成 = (7 - **實際花費時間**) * 0.01。
+*   **初步花費時間**: 在 `修正後下限` 與 `上限` 之間隨機產生。
+*   **速度折扣 (Speed Discount)**:
+    *   `前場速度總值 (Frontcourt_Speed_Sum)` = 進攻方場上 5 人的 `速度 (ath_speed)` 總和。
+    *   `折扣秒數 = Random(0, (Frontcourt_Speed_Sum / 5) * 0.01)`
+    *   **實際花費時間** = `初步花費時間 - 折扣秒數`。
+    *   **下限**: 實際花費時間最低不低於 **1.0** 秒。
+*   **24秒違例判定**:
+    *   若 `後場時間 + 實際花費時間 > 24.0`，則判定為 **24秒違例** (Team Turnover)，球權轉換。
+*   **出手品質加成**:
+    *   時間花費越少 -> 出手品質加成越高。
+    *   公式：`時間加成 = (7 - 實際花費時間) * 0.01`。
 
 ### 4.2 空間與跑位 (Spacing)
 *   **影響屬性**:
@@ -473,51 +490,64 @@
     *   歸屬: 團隊失誤 (Team TOV)。
     *   說明: 此類失誤計入球隊總失誤數，但不計入任何球員的個人數據。
 
-## 7. 輸出數據定義 (Output Data Definition) [New v1.8]
+## 7. 輸出數據定義 (Output Data Definition) [Update v2.4]
 比賽引擎執行完畢後，將回傳以下結構化數據。
 
 ### 7.1 比賽結果摘要 (Match Result)
 *   **資料來源**：`MatchEngine.simulate()` 回傳之 `MatchResult` 物件。
 
-| 欄位名稱 (Field) | 類型 | 說明 (Description) | 範例 / 備註 |
+| 欄位名稱 | 類型 | 說明 | 備註 |
 | :--- | :---: | :--- | :--- |
-| `game_id` | `str` | **比賽識別碼** | "SIM_GAME_001" |
-| `home_team_id` | `str` | **主隊 ID** | |
-| `away_team_id` | `str` | **客隊 ID** | |
-| `home_score` | `int` | **主隊最終得分** | |
-| `away_score` | `int` | **客隊最終得分** | |
-| `is_ot` | `bool` | **是否延長** | `True` 表示有進行 OT |
-| `total_quarters` | `int` | **總節數** | 4 (正規賽), >4 (含延長賽) |
-| `pbp_log` | `List` | **文字轉播紀錄** | 逐行紀錄比賽事件字串 |
+| `game_id` | `str` | 比賽識別碼 | |
+| `home_score` | `int` | 主隊得分 | |
+| `away_score` | `int` | 客隊得分 | |
+| `is_ot` | `bool` | 是否延長 | |
+| `pace` | `float` | **比賽節奏** | Pace (Possessions / 48min) |
+| `home_possessions` | `int` | **主隊回合數** | |
+| `away_possessions` | `int` | **客隊回合數** | |
+| `home_avg_seconds_per_poss` | `float` | **主隊平均每回合秒數** | |
+| `away_avg_seconds_per_poss` | `float` | **客隊平均每回合秒數** | |
+| `home_fb_made` | `int` | **主隊快攻進球** | |
+| `home_fb_attempt` | `int` | **主隊快攻嘗試** | |
+| `away_fb_made` | `int` | **客隊快攻進球** | |
+| `away_fb_attempt` | `int` | **客隊快攻嘗試** | |
+| `home_violation_8s` | `int` | **主隊8秒違例** | [New v2.4] |
+| `home_violation_24s` | `int` | **主隊24秒違例** | [New v2.4] |
+| `away_violation_8s` | `int` | **客隊8秒違例** | [New v2.4] |
+| `away_violation_24s` | `int` | **客隊24秒違例** | [New v2.4] |
 
 ### 7.2 球員統計數據 (Player Statistics / Box Score)
-*   **資料來源**：需遍歷賽後 `EngineTeam.roster` 中的 `EnginePlayer` 物件取得。
+*   **資料來源**：`EnginePlayer` 物件。
 
-| 分類 (Category) | 欄位代號 (Key) | 名稱 (Label) | 說明與備註 (Notes) |
+| 分類 | 欄位代號 | 名稱 | 說明 |
 | :--- | :--- | :--- | :--- |
-| **基礎數據** | `stat_pts` | **得分** (PTS) | 球員總得分 |
-| | `stat_reb` | **總籃板** (REB) | 進攻籃板 + 防守籃板 |
-| | `stat_ast` | **助攻** (AST) | |
-| | `stat_stl` | **抄截** (STL) | |
-| | `stat_blk` | **阻攻** (BLK) | |
-| | `stat_tov` | **個人失誤** (TOV) | 僅包含個人責任失誤 (如被抄截、傳球出界) |
-| | `fouls` | **犯規** (PF) | 累計達 6 次即犯滿離場 |
-| **投籃數據** | `stat_fgm` | **投籃命中** (FGM) | 包含 2 分球與 3 分球 |
-| | `stat_fga` | **投籃出手** (FGA) | 包含 2 分球與 3 分球 |
-| | `stat_3pm` | **三分命中** (3PM) | |
-| | `stat_3pa` | **三分出手** (3PA) | |
-| | `stat_ftm` | **罰球命中** (FTM) | |
-| | `stat_fta` | **罰球出手** (FTA) | |
-| **進階/狀態** | `stat_orb` | **進攻籃板** (ORB) | |
-| | `stat_drb` | **防守籃板** (DRB) | |
-| | `seconds_played` | **上場時間** (SEC) | 單位：**秒** (顯示時需除以 60 換算為分鐘) |
-| | `current_stamina` | **剩餘體力** | 賽後剩餘數值 (0.0 ~ 100.0) |
-| | `is_fouled_out` | **犯滿狀態** | `True` 表示該場比賽已犯滿離場 |
+| **基礎** | `stat_pts` | 得分 | |
+| | `stat_reb` | 籃板 | |
+| | `stat_ast` | 助攻 | |
+| | `stat_stl` | 抄截 | |
+| | `stat_blk` | 阻攻 | |
+| | `stat_tov` | 失誤 | |
+| | `fouls` | 犯規 | |
+| | `stat_plus_minus` | **正負值 (+/-)** | 球員在場期間球隊淨勝分 |
+| **投籃** | `stat_fgm` / `stat_fga` | 投籃命中/出手 | |
+| | `stat_3pm` / `stat_3pa` | 三分命中/出手 | |
+| | `stat_ftm` / `stat_fta` | 罰球命中/出手 | |
+| **進階** | `stat_orb` / `stat_drb` | 進/防籃板 | |
+| | `stat_fb_made` | **快攻進球** | |
+| | `stat_fb_attempt` | **快攻嘗試** | |
+| | `stat_remaining_stamina` | **剩餘體力** | |
+| | `seconds_played` | 上場時間 | |
 
 ### 7.3 團隊統計數據 (Team Statistics)
-*   **資料來源**：賽後 `EngineTeam` 物件。
+*   **資料來源**：`EngineTeam` 物件。
 
-| 欄位代號 (Key) | 名稱 (Label) | 說明與備註 (Notes) |
+| 欄位代號 | 名稱 | 說明 |
 | :--- | :--- | :--- |
-| `score` | **團隊總分** | 隊伍最終得分 |
-| `stat_tov` | **團隊失誤** | **非個人歸屬失誤** (如 8秒/24秒違例)<br>註：球隊總失誤數 = `Team.stat_tov` + `Sum(Player.stat_tov)` |
+| `score` | 團隊總分 | |
+| `stat_tov` | 團隊失誤 | 包含 8秒/24秒違例等非個人失誤 |
+| `stat_violation_8s` | **8秒違例** | [New v2.4] 團隊違例計數 |
+| `stat_violation_24s` | **24秒違例** | [New v2.4] 團隊違例計數 |
+| `stat_possessions` | **總回合數** | |
+| `stat_possession_seconds` | **總控球時間** | 單位：秒 |
+| `stat_fb_made` | **團隊快攻進球** | |
+| `stat_fb_attempt` | **團隊快攻嘗試** | |
