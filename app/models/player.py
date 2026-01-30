@@ -7,6 +7,12 @@ class Player(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), nullable=False)
+    
+    # 3. 新增 nationality 欄位 (Spec v3.2)
+    # 用於記錄球員的語系來源或國籍 (例如: 'zh', 'en', 'jp', 'tw_aboriginal')
+    # 這對應到 NameLibrary 中的 language 欄位，預設為 'zh'
+    nationality = db.Column(db.String(16), nullable=False, default='zh', comment='球員國籍/語系')
+
     age = db.Column(db.Integer, default=18)
     
     # 身高與位置
@@ -34,7 +40,8 @@ class Player(db.Model):
     contract = db.relationship('Contract', backref='player', uselist=False, cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f'<Player {self.name} ({self.position})>'
+        # 修改顯示格式，加入國籍以便辨識
+        return f'<Player {self.name} ({self.nationality})>'
 
 class Contract(db.Model):
     __tablename__ = 'contracts'

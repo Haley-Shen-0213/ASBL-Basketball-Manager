@@ -36,6 +36,13 @@ SPECIFIC_FILES = [
 
     # --- 設定檔 (Configuration) ---
     "config/game_config.yaml",
+    "config.py",
+    "run.py",
+
+    # --- 應用程式模組層 (App Models) ---
+    "app/models/player.py",
+    "app/models/system.py",
+    "app/models/user.py",
 
     # --- 應用程式服務層 (App Services) ---
     "app/services/player_generator.py",
@@ -58,6 +65,9 @@ SPECIFIC_FILES = [
 
     # --- 比賽引擎測試工具 (Match Engine Test Utils) ---
     "tests/match_bigdata_test/run_core_bigdata_test.py",
+
+    # --- 開發紀錄 (DEV_LOG.md) ---
+    "DEV_LOG.md",
 ]
 
 # ==========================================

@@ -97,6 +97,7 @@ def build_engine_player(row: Dict[str, Any]) -> EnginePlayer:
         role=str(row.get("role", row.get("contract_role", "Bench"))),
         grade=str(row.get("grade", "G")),
         height=float(row.get("height", 195)),
+        age=int(row.get("age", 25)), # <--- 讀取 age
 
         ath_stamina=float(row.get("ath_stamina", 0)),
         ath_strength=float(row.get("ath_strength", 0)),

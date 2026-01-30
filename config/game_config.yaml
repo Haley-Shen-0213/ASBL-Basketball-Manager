@@ -1,10 +1,23 @@
 # =============================================================================
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
-#   - Player System Specification v3.2 (2025/12/24 Update for TeamCreator role)
-#   - Match Engine Specification v2.1 (2025/12/28 Update)
+#   - Player System Specification v3.4 (2026/01/25 Update)
+#   - Match Engine Specification v2.4 (2026/01/23 Update)
 # 路徑 config/game_config.yaml
 # =============================================================================
+
+# [Spec v3.3] 姓名生成策略設定
+# 將語系分類移至設定檔，方便擴充
+name_generation:
+  strategies:
+    # 策略 A: 歐美語系 (Western) - 隨機抽3個字組合，用間隔號分隔
+    western: ['en', 'es', 'pt', 'ru', 'de', 'fr', 'it']
+    
+    # 策略 B: 東亞語系 (East Asian) - 姓+名(1-2字)，無分隔符
+    east_asian: ['zh', 'ja', 'ko']
+    
+    # 策略 C: 原住民語系 (Indigenous) - 隨機抽2個不重複字組合，用間隔號分隔
+    indigenous: ['tw_aboriginal']
 
 system: # 系統設定
   season_days: 91 # 賽季天數
@@ -444,7 +457,7 @@ match_engine:
     
     formulas:
       # [Spec 6.1] 投籃歸屬 (引用 Off_Total, 額外加成由程式邏輯判斷 3分/2分)
-      shot_weight_base: 'off_13'  # 基礎出手權重看進攻總值
+      shot_weight_base: 'off_14'  # 基礎出手權重看進攻總值
       shot_3pt_bonus: ['shot_release', 'shot_range', 'off_move'] # 若是三分球回合，這些屬性權重加倍
 
       # [Spec 6.3] 籃板歸屬

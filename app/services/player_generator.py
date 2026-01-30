@@ -2,7 +2,6 @@
 import random
 import math
 import re
-from sqlalchemy.sql.expression import func
 from app import db
 from app.models.player import Player, Contract
 from app.models.system import NameLibrary
@@ -10,12 +9,11 @@ from app.utils.game_config_loader import GameConfigLoader
 
 # ==========================================
 # ASBL Player Generator Service
-# Specification: v3.1 (Final Revised - Dynamic Validation)
-# Environment: i9-14900k + 128G RAM
+# Specification: v3.3 (Name Strategy Configurable)
 # Features: 
-#   - Fully Configurable (Logic extracted from YAML)
-#   - Cache on Startup (Rule Compilation)
-#   - Stage-based Reroll
+#   - Multi-language Name Generation (Strategy A/B/C)
+#   - Config-driven strategy mapping
+#   - Dynamic Validation
 # ==========================================
 
 class PlayerGenerator:
@@ -23,7 +21,16 @@ class PlayerGenerator:
     # -------------------------------------------------------------------------
     # 靜態快取區 (Static Cache)
     # -------------------------------------------------------------------------
-    _names_cache = {'last': [], 'first': []}
+    # 結構: 
+    # _names_cache = {
+    #    'en': {
+    #       'surname': [{'content': 'Smith', 'weight': 10}, ...],
+    #       'given_name': [{'content': 'John', 'weight': 20}, ...],
+    #       'all': [...] # 混合列表 (for Strategy A)
+    #    },
+    #    'zh': ...
+    # }
+    _names_cache = {} 
     _config_cache = {}
     _is_initialized = False
 
@@ -65,12 +72,41 @@ class PlayerGenerator:
 
         print("[PlayerGenerator] Initializing cache for High Performance Mode...")
 
-        # 1. 載入姓名庫
-        lasts = db.session.query(NameLibrary.text).filter_by(category='last').yield_per(1000)
-        firsts = db.session.query(NameLibrary.text).filter_by(category='first').yield_per(1000)
+        # 1. 載入姓名庫 (保留 Weight 資訊)
+        # 使用 yield_per 優化大量數據讀取
+        all_names = db.session.query(NameLibrary).yield_per(10000)
         
-        cls._names_cache['last'] = [row.text for row in lasts]
-        cls._names_cache['first'] = [row.text for row in firsts]
+        cls._names_cache = {}
+        
+        # [v3.4 Update] 用於計算語系權重的計數器
+        lang_counts = {}
+        
+        for row in all_names:
+            lang = row.language
+            cat = row.category
+            
+            if lang not in cls._names_cache:
+                cls._names_cache[lang] = {'surname': [], 'given_name': [], 'all': []}
+                lang_counts[lang] = 0 # 初始化計數
+            
+            item = {'content': row.content, 'weight': row.weight}
+            
+            # 分類儲存
+            if cat in cls._names_cache[lang]:
+                cls._names_cache[lang][cat].append(item)
+            
+            # 同時存入 'all' (供 Strategy A 使用)
+            cls._names_cache[lang]['all'].append(item)
+            
+            # [v3.4 Update] 累加該語系的資料筆數
+            lang_counts[lang] += 1
+
+        # [v3.4 Update] 預先計算語系分佈權重，避免在 generate 時重複計算
+        # 結構: {'langs': ['en', 'zh', ...], 'weights': [1050, 300, ...]}
+        cls._config_cache['lang_distribution'] = {
+            'langs': list(lang_counts.keys()),
+            'weights': list(lang_counts.values())
+        }
 
         # 2. 預載入 Config (基礎)
         cls._config_cache['grades'] = GameConfigLoader.get('generation.grades')
@@ -79,6 +115,9 @@ class PlayerGenerator:
         cls._config_cache['trainable_keys'] = GameConfigLoader.get('generation.attributes.trainable')
         cls._config_cache['height_modifiers'] = GameConfigLoader.get('generation.height_modifiers')
         cls._config_cache['weighted_bonus_keys'] = GameConfigLoader.get('generation.weighted_bonus_keys')
+        
+        # 2.1 載入姓名生成策略 (New Spec v3.3)
+        cls._config_cache['name_strategies'] = GameConfigLoader.get('name_generation.strategies')
         
         # 3. 預載入身高與位置參數 (消除 Hardcode)
         cls._config_cache['height_dist'] = GameConfigLoader.get('generation.height_distribution')
@@ -93,7 +132,7 @@ class PlayerGenerator:
                 'weights': list(entry['weights'].values())
             })
 
-        # 3.2 [New] 位置檢核規則編譯 (Rule Compiler)
+        # 3.2 位置檢核規則編譯 (Rule Compiler)
         # 將 YAML 中的 "sum(a, b, c) > ..." 字串解析為 Python list ['a', 'b', 'c']
         raw_validation = GameConfigLoader.get('generation.position_validation')
         cls._config_cache['pos_validation_compiled'] = {}
@@ -131,33 +170,113 @@ class PlayerGenerator:
         print(f"[PlayerGenerator] Cache initialized. Validation Rules Compiled.")
 
     # =========================================================================
-    # 1. 姓名生成 (Name Generation)
-    # =========================================================================
+    # 1. 姓名生成 (Name Generation) - v3.3 Update
+    # ===================================================================================
+    
+    @staticmethod
+    def _pick_weighted(items, k=1):
+        """[Helper] 根據 weight 屬性進行加權隨機抽取"""
+        if not items: return []
+        population = [x['content'] for x in items]
+        weights = [x['weight'] for x in items]
+        return random.choices(population, weights=weights, k=k)
+
     @classmethod
-    def _generate_name(cls):
+    def _get_strategy_for_lang(cls, lang):
+        """從 Config 中查找該語系對應的策略"""
+        strategies = cls._config_cache['name_strategies']
+        if lang in strategies.get('western', []):
+            return 'A'
+        elif lang in strategies.get('east_asian', []):
+            return 'B'
+        elif lang in strategies.get('indigenous', []):
+            return 'C'
+        return 'A' # Default fallback
+
+    @classmethod
+    def _generate_name_data(cls):
+        """
+        生成姓名與國籍
+        Return: (full_name, nationality_code)
+        """
         if not cls._is_initialized: cls.initialize_class()
 
-        r = random.random()
-        target_len = 1 if r < 0.80 else (2 if r < 0.95 else 3)
+        # [v3.4 Update] 決定語系邏輯變更
+        # 從「語系均等」改為「依資料庫筆數權重」隨機抽取
+        dist = cls._config_cache.get('lang_distribution')
         
-        valid_lasts = [n for n in cls._names_cache['last'] if (len(n) == target_len if target_len < 3 else len(n) >= 3)]
-        last_name = random.choice(valid_lasts) if valid_lasts else random.choice(cls._names_cache['last'])
-        first_name = random.choice(cls._names_cache['first'])
-        
-        full_name = last_name + first_name
-        
-        should_add = False
-        if len(full_name) <= 2:
-            should_add = random.choice([True, False])
-        elif len(last_name) > 1 and len(first_name) == 1:
-            should_add = random.choice([True, False])
+        if not dist or not dist['langs']:
+            return "Unknown Player", "en"
             
-        if should_add:
-            second_char = random.choice(cls._names_cache['first'])
-            if len(second_char) == 1:
-                full_name += second_char
+        # 使用 random.choices 進行加權抽取 (O(1) after initialization)
+        selected_lang = random.choices(
+            dist['langs'], 
+            weights=dist['weights'], 
+            k=1
+        )[0]
+        
+        strategy = cls._get_strategy_for_lang(selected_lang)
+        lang_data = cls._names_cache[selected_lang]
+        full_name = ""
+
+        # 2. 依語系執行策略
+        if strategy == 'A': # 歐美語系 (Western)
+            # 規則: 不分 category，依照權重隨機抽取 3 個內容組合，用間隔號分隔
+            parts = cls._pick_weighted(lang_data['all'], k=3)
+            full_name = "・".join(parts)
+
+        elif strategy == 'B': # 東亞語系 (East Asian)
+            # 規則: 
+            # 1. 抽姓氏 (category='surname')
+            # 2. 抽名字1 (category='given_name')
+            # 3. 判定名字2 (70% 機率再抽一個 given_name)
+            # 組合: 姓 + 名1 [+ 名2]
+            
+            surnames = lang_data.get('surname', [])
+            given_names = lang_data.get('given_name', [])
+            
+            # 防呆：若資料不足，退回到 'all' 抽取
+            if not surnames: surnames = lang_data['all']
+            if not given_names: given_names = lang_data['all']
+
+            sn = cls._pick_weighted(surnames, k=1)[0]
+            gn1 = cls._pick_weighted(given_names, k=1)[0]
+            
+            full_name = sn + gn1
+            
+            # 70% 機率雙字名
+            if random.random() < 0.7:
+                gn2 = cls._pick_weighted(given_names, k=1)[0]
+                full_name += gn2
+
+        elif strategy == 'C': # 台灣原住民語系 (Indigenous)
+            # 規則: 隨機抽取 2 個「不重複」的內容，用間隔號拼接
+            pool = lang_data['all']
+            if len(pool) < 2:
+                parts = cls._pick_weighted(pool, k=len(pool)) # 資料不足就全拿
+            else:
+                # 抽取不重複邏輯
+                # 由於 random.choices 是取後放回，這裡手動處理不重複
+                selected = []
+                temp_pool = list(pool) # Copy
                 
-        return full_name
+                while len(selected) < 2 and temp_pool:
+                    # 重新計算權重並抽取
+                    pick_list = cls._pick_weighted(temp_pool, k=1)
+                    if not pick_list: break
+                    
+                    val = pick_list[0]
+                    selected.append(val)
+                    
+                    # 從暫存池移除已選中的 (避免重複)
+                    # 注意：這裡假設 content 是唯一的，或者移除第一個匹配項
+                    temp_pool = [x for x in temp_pool if x['content'] != val]
+                
+                parts = selected
+                
+            full_name = "・".join(parts)
+        
+        return full_name, selected_lang
 
     # =========================================================================
     # 2. 天賦生成 (Untrainable Stats)
@@ -336,8 +455,8 @@ class PlayerGenerator:
     def generate_payload(cls, specific_grade=None):
         if not cls._is_initialized: cls.initialize_class()
 
-        # 1. Name
-        name = cls._generate_name()
+        # 1. Name & Nationality (Updated)
+        name, nationality = cls._generate_name_data()
 
         # 2. Grade
         if specific_grade:
@@ -381,6 +500,7 @@ class PlayerGenerator:
 
         return {
             "name": name,
+            "nationality": nationality, # 新增國籍
             "grade": grade,
             "age": age,
             "height": height,
@@ -399,6 +519,7 @@ class PlayerGenerator:
     def to_flat_dict(payload):
         flat = {
             "name": payload['name'],
+            "nationality": payload['nationality'], # [Update] 加入語系欄位
             "grade": payload['grade'],
             "age": payload['age'],
             "height": payload['height'],
@@ -417,6 +538,7 @@ class PlayerGenerator:
     def save_to_db(cls, payload, user_id=None, team_id=None):
         player = Player(
             name=payload['name'],
+            nationality=payload['nationality'], # [Update] 儲存國籍
             age=payload['age'],
             height=payload['height'],
             position=payload['position'],

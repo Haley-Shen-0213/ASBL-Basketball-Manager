@@ -94,7 +94,7 @@ class SubstitutionSystem:
         if total_slots > 0:
             unit_time = minutes / float(total_slots)
             for p in targets:
-                p.target_minutes += unit_time
+                p.target_seconds += unit_time
 
     @staticmethod
     def execute_sub(team: EngineTeam, p_out: EnginePlayer, p_in: EnginePlayer):

@@ -19,6 +19,14 @@ class StaminaSystem:
         me_config = config.get('match_engine', {})
         gen_config = me_config.get('general', {})
         sys_config = me_config.get('stamina_system', {})
+        age_threshold = sys_config.get('age_threshold', 20)
+        age_decay_rate = sys_config.get('age_decay_rate', 0.01)
+
+        # 計算年齡因子
+        age_factor = 1.0
+        if player.age > age_threshold:
+            # (Age - 20) * 1%
+            age_factor = 1.0 + (player.age - age_threshold) * age_decay_rate
         
         # 取得屬性名稱
         drain_attrs = sys_config.get('drain_attrs', ['ath_stamina', 'talent_health'])
@@ -38,14 +46,18 @@ class StaminaSystem:
         if is_on_court:
             # [Spec 2.3] 消耗公式
             # 消耗量/分 = Coeff * [1 + (1 - 體能%)] + (1 - 健康%)
-            # 這裡省略了年齡修正，若需完整實作需補上 Age 參數讀取
             drain_per_min = drain_coeff * (1.0 + (1.0 - stamina_pct)) + (1.0 - health_pct)
+            drain_per_min *= age_factor # <--- 乘上年齡因子
             change_per_minute = -drain_per_min
         else:
             # [Spec 2.4] 恢復公式
             # 恢復量/分 = 1.0 + (體能%) - (1 - 健康%)
+            recover_factor = 1.0 
+            if player.age > age_threshold:
+                recover_factor = 1.0 - (player.age - age_threshold) * age_decay_rate
+            
             base_recover = 1.0 
-            recover_per_min = base_recover + stamina_pct - (1.0 - health_pct)
+            recover_per_min = (base_recover + stamina_pct - (1.0 - health_pct)) * recover_factor # <--- 乘上恢復衰退
             change_per_minute = recover_per_min
 
         # 3. 應用變更

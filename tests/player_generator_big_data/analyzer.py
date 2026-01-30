@@ -52,6 +52,10 @@ class BigDataAnalyzer:
             'total_rows': 0,
             'grade_counts': {},
             
+            # [New] Name & Language Stats
+            'lang_counts': {},       # 語系統計 {code: count}
+            'unique_names': set(),   # 唯一姓名集合 (用於計算重複率)
+            
             # Height
             'height_counts': {}, 
             'height_sum': 0.0,
@@ -81,7 +85,6 @@ class BigDataAnalyzer:
             'violations': [],
             
             # KPI 3.6 Small Player Monitor by Grade
-            # Key: grade -> {'max': 0, 'count': 0, 'overflow_count': 0}
             'small_player_stats': {} 
         }
 
@@ -106,6 +109,7 @@ class BigDataAnalyzer:
         self._process_stream()
         
         self._write_execution_summary()
+        self._write_name_analysis()      # [New] 新增名字與語系分析報告
         self._write_height_analysis() 
         self._write_position_matrix() 
         self._write_rating_matrix()   
@@ -119,14 +123,14 @@ class BigDataAnalyzer:
 
     def _write_project_journal(self):
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-        self._log(f"# {now_str} 專案開發日誌：ASBL 球員生成系統大數據驗證架構 (v2.6)")
-        self._log(f"**Project Journal: ASBL Player Generation System - Big Data Verification Architecture (v2.6)**\n")
+        self._log(f"# {now_str} 專案開發日誌：ASBL 球員生成系統大數據驗證架構 (v2.7)")
+        self._log(f"**Project Journal: ASBL Player Generation System - Big Data Verification Architecture (v2.7)**\n")
         self._log(f"**日期**: {now_str}")
         self._log(f"**參與者**: Product Owner (User), Lead Architect (Monica)")
-        self._log(f"**主題**: 定義球員生成器 (v2.6) 的重構動機、測試目標與詳細 KPI 驗收標準\n")
-        self._log(f"## 1. 前言：重構動機與測試一致性 (Preface)")
-        self._log(f"為了確保程式設計與測試驗證的一致性與效率，我們在進入大數據測試前，對 `PlayerGenerator` 進行了核心重構 (Refactoring to v2.6)。")
-        self._log(f"本次測試的核心目標，即是驗證重構後的生成器，其**機率分佈**與**隨機性**是否完全符合數學模型設定。\n")
+        self._log(f"**主題**: 擴增姓名與語系多樣性分析 (Name Variety Analysis)\n")
+        self._log(f"## 1. 前言：測試目標 (Preface)")
+        self._log(f"本次更新 (v2.7) 新增了針對 `PlayerGenerator` 姓名庫的統計分析。")
+        self._log(f"目標是驗證多國語系 (Nationality) 的出現機率是否符合設定，並監測姓名重複率以評估詞庫豐富度。\n")
 
     def _process_stream(self):
         print("[Analyzer] 開始串流掃描數據 (Aggregation Mode)...")
@@ -153,9 +157,9 @@ class BigDataAnalyzer:
         
         stat_bins = [0, 10, 40, 60, 89, 99]
         
-        # Columns
+        # Columns (Added 'nationality')
         cols = [
-            'grade', 'position', 'height', 'age', 'name', 'rating',
+            'grade', 'position', 'height', 'age', 'name', 'nationality', 'rating',
             # Untrainable
             'physical_stamina', 'physical_strength', 'physical_speed', 'physical_jumping', 'physical_health',
             'offense_touch', 'offense_release', 'mental_off_iq', 'mental_def_iq', 'mental_luck',
@@ -180,6 +184,18 @@ class BigDataAnalyzer:
             df = batch.to_pandas()
             self.stats['total_rows'] += len(df)
             
+            # [New] Language Stats
+            if 'nationality' in df.columns:
+                l_counts = df['nationality'].value_counts()
+                for l, c in l_counts.items():
+                    self.stats['lang_counts'][l] = self.stats['lang_counts'].get(l, 0) + c
+            
+            # [New] Name Uniqueness
+            if 'name' in df.columns:
+                # 將該批次的唯一姓名加入全域集合
+                batch_unique = set(df['name'].unique())
+                self.stats['unique_names'].update(batch_unique)
+
             # 1. Grade Counts
             g_counts = df['grade'].value_counts()
             for g, c in g_counts.items():
@@ -281,13 +297,11 @@ class BigDataAnalyzer:
                 # Monitor 3.6: Small Player Overflow Check
                 is_small = df['height'] <= 189
                 if is_small.any():
-                    # Create a mini DF for calculation
                     small_df = pd.DataFrame({
                         'grade': df.loc[is_small, 'grade'],
                         't_sum': t_sum[is_small]
                     })
                     
-                    # Group by grade to calc stats
                     for grade, sub_df in small_df.groupby('grade'):
                         cap = BASE_CAPS.get(grade, 9999)
                         max_val = sub_df['t_sum'].max()
@@ -327,6 +341,39 @@ class BigDataAnalyzer:
         self._log(f"• 記憶體峰值:    {m['peak_ram_gb']:.2f} GB")
         self._log(f"• CPU 峰值:      {m['peak_cpu']:.1f}%")
         self._log("-" * 100 + "\n")
+
+    def _write_name_analysis(self):
+        """[New] 輸出姓名與語系分析"""
+        self._log("📊 [KPI 3.0] 姓名與語系多樣性 (Name & Nationality Diversity)")
+        self._log("-" * 100)
+        
+        total = self.stats['total_rows']
+        if total == 0: return
+
+        # 1. 語系分佈
+        self._log("🔍 (A) 語系分佈 (Nationality Distribution):")
+        self._log(f"{'Code':<10} | {'Count':<12} | {'Percentage':<12}")
+        self._log("-" * 40)
+        
+        sorted_langs = sorted(self.stats['lang_counts'].items(), key=lambda x: x[1], reverse=True)
+        for code, count in sorted_langs:
+            pct = count / total
+            self._log(f"{code:<10} | {count:<12,} | {pct:10.2%}")
+        self._log("-" * 40 + "\n")
+
+        # 2. 姓名重複率
+        unique_count = len(self.stats['unique_names'])
+        repetition_rate = 1.0 - (unique_count / total)
+        
+        self._log("🔍 (B) 姓名豐富度 (Name Uniqueness):")
+        self._log(f"• 總生成數 (Total):      {total:,}")
+        self._log(f"• 唯一姓名數 (Unique):    {unique_count:,}")
+        self._log(f"• 重複率 (Repetition):    {repetition_rate:.2%} (數值越低代表詞庫組合越多)")
+        
+        # 簡單評價
+        status = "極高" if repetition_rate < 0.1 else "中等" if repetition_rate < 0.5 else "偏高"
+        self._log(f"• 詞庫多樣性評價:        {status}")
+        self._log("\n")
 
     def _get_normal_prob(self, start, end, mean=195, std=10):
         cdf_end = 0.5 * (1 + math.erf((end - mean) / (std * 2**0.5)))

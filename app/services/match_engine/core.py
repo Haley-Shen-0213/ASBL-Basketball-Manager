@@ -254,6 +254,12 @@ class MatchEngine:
             self._simulate_quarter()
 
         self.state.is_over = True
+
+        # --- 新增回填邏輯 ---
+        for team in [self.home_team, self.away_team]:
+            for p in team.roster:
+                p.stat_remaining_stamina = p.current_stamina
+        # ------------------
         
         # 5. 計算 Pace (Possessions per 48 min)
         total_possessions = self.home_team.stat_possessions + self.away_team.stat_possessions
@@ -328,6 +334,8 @@ class MatchEngine:
         
         # 標記是否為新的一波球權 (節次開始或攻守交換後)
         is_new_possession = True 
+        is_oreb = False 
+        keep = False
 
         while self.state.time_remaining > 0:
             self._check_substitutions()
@@ -344,7 +352,8 @@ class MatchEngine:
                 is_new_possession = False
 
             # 3. 執行回合
-            elapsed, desc, keep = self._simulate_possession(is_opening)
+            is_oreb = keep if 'keep' in locals() else False 
+            elapsed, desc, keep = self._simulate_possession(is_opening, is_oreb)
             
             # [New] 記錄回合消耗時間
             # 將該次進攻所花費的時間，歸屬給進攻方
@@ -417,7 +426,7 @@ class MatchEngine:
             )
             self.pbp_logs.extend(logs)
 
-    def _simulate_possession(self, is_opening: bool) -> Tuple[float, str, bool]:
+    def _simulate_possession(self, is_opening: bool, is_oreb: bool = False) -> Tuple[float, str, bool]:
         """
         單一回合模擬
         更新 v2.4: 支援後場抄截後的「即時攻守交換」(Instant Transition)
@@ -505,7 +514,7 @@ class MatchEngine:
         # ============================================================
         # Phase 2: Frontcourt (前場)
         # ============================================================
-        elapsed_fc, res, desc, ctx = self._run_frontcourt(off_team, def_team, elapsed_bc)
+        elapsed_fc, res, desc, ctx = self._run_frontcourt(off_team, def_team, elapsed_bc, is_oreb)
         total_elapsed = elapsed_bc + elapsed_fc
         
         if res != 'shooting': 
@@ -605,7 +614,7 @@ class MatchEngine:
         
         return final_time, 'frontcourt', "Advance"
 
-    def _run_frontcourt(self, off_team: EngineTeam, def_team: EngineTeam, elapsed_bc: float):
+    def _run_frontcourt(self, off_team: EngineTeam, def_team: EngineTeam, elapsed_bc: float, is_oreb: bool = False):
         """(Spec 4) 前場階段 [Update v2.4 速度折扣 & 24秒違例]"""
         # 1. 讀取設定檔參數
         fc_config = self.config.get('match_engine', {}).get('frontcourt', {})
@@ -623,7 +632,15 @@ class MatchEngine:
         
         # 計算本回合剩餘可用的進攻時間上限 (24秒 - 後場已用時間)
         # 確保上限至少比下限大 1.0 秒，避免隨機錯誤
-        max_time = max(min_time + 1.0, 24.0 - elapsed_bc)
+        # 修改時間上限邏輯
+        if is_oreb:
+            # 進攻籃板：上限固定 14 秒 (且不受後場時間影響，因為沒回後場)
+            max_time = 14.0
+            # 下限也要確保合理
+            min_time = min(min_time, 13.0) 
+        else:
+            # 一般進攻：24 - 後場時間
+            max_time = max(min_time + 1.0, 24.0 - elapsed_bc)
         
         # 初步隨機產生花費時間
         elapsed = rng.get_float(min_time, max_time)
@@ -770,35 +787,88 @@ class MatchEngine:
 
     def _run_fastbreak(self, off_team: EngineTeam, def_team: EngineTeam, elapsed: float) -> Tuple[float, str, str]:
         """
-        (Spec 3.5) 快攻
-        [Phase 2] 整合 record_fastbreak_event
+        (Spec 3.5) 快攻判定 (Fastbreak)
+        依據規格書 v2.4 完整實作：參與者篩選 -> 成功率計算 -> 犯規判定 -> 四種結果結算
         """
         fb_config = self.config.get('match_engine', {}).get('backcourt', {}).get('fastbreak', {})
+        params = fb_config.get('params', {})
         formulas = fb_config.get('formulas', {})
         attr_pools = self.config.get('match_engine', {}).get('attr_pools', {})
         
-        # 簡化實作: 隨機選人 (或可改為 Spec 邏輯)
-        runner = off_team.on_court[0]
-        chaser = def_team.on_court[0]
+        # 1. 參與者篩選 (Participants)
+        # 進攻者 (Runner): 取場上 (速度 + 運球) 最高者
+        runner_keys = self._resolve_formula(formulas.get('runner_selection', ['ath_speed', 'off_dribble']), attr_pools)
+        runner = max(off_team.on_court, key=lambda p: Calculator.get_player_attr_sum(p, runner_keys, attr_pools))
         
-        # 成功率
+        # 防守者 (Chaser): 取場上 (速度 + 防守智商) 最高者
+        chaser_keys = self._resolve_formula(formulas.get('chaser_selection', ['ath_speed', 'talent_defiq']), attr_pools)
+        chaser = max(def_team.on_court, key=lambda p: Calculator.get_player_attr_sum(p, chaser_keys, attr_pools))
+        
+        # 2. 進球成功率 (Success Rate)
+        # 基礎成功率: 隨機 0.3 ~ 1.0
+        base_rate = rng.get_float(params.get('base_success_min', 0.3), params.get('base_success_max', 1.0))
+        
+        # 屬性修正: (Off_Stat - Def_Stat) * 0.5%
         off_power = Calculator.get_player_attr_sum(runner, self._resolve_formula(formulas.get('off_power', []), attr_pools), attr_pools)
         def_power = Calculator.get_player_attr_sum(chaser, self._resolve_formula(formulas.get('def_power', []), attr_pools), attr_pools)
+        diff_mod = (off_power - def_power) * params.get('stat_diff_coeff', 0.005)
         
-        success_prob = 0.5 + (off_power - def_power) * 0.005
-        is_success = rng.decision(success_prob)
+        final_success_rate = min(1.0, base_rate + diff_mod)
+        is_success = rng.decision(final_success_rate)
         
-        # [Phase 2] 記錄快攻事件
+        # [Phase 2] 記錄快攻事件 (無論結果如何都記錄嘗試)
         AttributionSystem.record_fastbreak_event(off_team, runner, is_success)
+
+        # 3. 犯規判定 (Foul Check)
+        # 核心屬性: 進攻智商 vs 防守智商
+        off_iq = Calculator.get_player_attr_sum(runner, self._resolve_formula(formulas.get('foul_off_iq', ['talent_offiq']), attr_pools), attr_pools)
+        def_iq = Calculator.get_player_attr_sum(chaser, self._resolve_formula(formulas.get('foul_def_iq', ['talent_defiq']), attr_pools), attr_pools)
         
+        # 犯規機率: 1% + (Off_IQ - Def_IQ) * 1%
+        foul_base = params.get('foul_base_prob', 0.01)
+        foul_coeff = params.get('foul_iq_coeff', 0.01)
+        foul_prob = max(0.001, foul_base + (off_iq - def_iq) * foul_coeff)
+        
+        is_foul = rng.decision(foul_prob)
+
+        # 4. 最終結果結算 (Outcome)
+        log_desc = ""
+        res_type = ""
+
         if is_success:
+            # --- 情況 A & B: 快攻進球 ---
             AttributionSystem.record_score(off_team, runner, 2, False)
-            # [New] 更新 +/-
             AttributionSystem.update_plus_minus(off_team, def_team, 2)
-            return elapsed, 'score', f"{off_team.name} {runner.name} Fastbreak Score"
+            
+            if is_foul:
+                # [情況 B] 進算加罰 (And-1)
+                AttributionSystem.record_foul(chaser)
+                self._check_and_handle_foul_out(def_team, chaser)
+                made = self._run_free_throw(off_team, def_team, runner, 1)
+                log_desc = f"{off_team.name} {runner.name} 快攻進算加罰 (And-1, FT {made}/1)"
+                res_type = 'score'
+            else:
+                # [情況 A] 快攻得分
+                log_desc = f"{off_team.name} {runner.name} 快攻得分"
+                res_type = 'score'
         else:
-            AttributionSystem.record_rebound(chaser, False)
-            return elapsed, 'turnover', f"{off_team.name} {runner.name} Fastbreak Stopped by {chaser.name}"
+            # --- 情況 C & D: 快攻失敗 ---
+            if is_foul:
+                # [情況 C] 阻擋/打手犯規 (罰球 2 次)
+                AttributionSystem.record_foul(chaser)
+                self._check_and_handle_foul_out(def_team, chaser)
+                made = self._run_free_throw(off_team, def_team, runner, 2)
+                log_desc = f"{off_team.name} {runner.name} 快攻遭犯規 (FT {made}/2)"
+                # 雖然沒進球，但有罰球產出，視同得分流程結束，回傳 score 類型以觸發攻守交換
+                res_type = 'score' 
+            else:
+                # [情況 D] 防守成功 (視為失誤/被擋下)
+                # 歸屬防守籃板給追防者 (或可視為火鍋，此處依 Spec 簡化為防守成功)
+                AttributionSystem.record_rebound(chaser, False)
+                log_desc = f"{off_team.name} {runner.name} 快攻失敗 (被 {chaser.name} 擋下)"
+                res_type = 'turnover'
+
+        return elapsed, res_type, log_desc
 
     def _run_shooting(self, off_team: EngineTeam, def_team: EngineTeam, ctx: Dict) -> Tuple[str, bool]:
         """
