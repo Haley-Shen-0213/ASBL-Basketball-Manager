@@ -1,11 +1,12 @@
 # ASBL 資料庫架構規格書 (Database Schema Specification)
 
-**版本**: 1.2
+**版本**: 1.3
 **最後更新**: 2026-02-16
 **說明**: 本文件定義 ASBL 籃球經理遊戲的核心資料庫結構，對應 SQLAlchemy Models 與實際 DDL。
 **變更記錄**:
 *   v1.1: 初始版本。
 *   v1.2: 新增 `TeamTactics` 表，用於儲存球隊的戰術配置與登錄名單，實現資料解耦。
+*   v1.3: 新增 `TeamTactics` 表，用於儲存球隊的戰術配置與登錄名單，實現資料解耦。
 
 ---
 
@@ -103,8 +104,9 @@ erDiagram
 | `funds` | BigInteger | Nullable | 球隊資金 (App 預設 300000) |
 | `reputation` | Integer | Nullable | 球隊聲望 (App 預設 0) |
 | `scout_chances` | Integer | Nullable | 剩餘球探次數 (App 預設 100) |
-| `season_wins` | Integer | Nullable | 剩餘球探次數 (由 App 寫入) |
-| `season_losses` | Integer | Nullable | 剩餘球探次數 (由 App 寫入) |
+| `season_wins` | Integer | Nullable | 球隊勝場 (由 App 寫入) |
+| `season_losses` | Integer | Nullable | 球隊敗場 (由 App 寫入) |
+| `daily_scout_level` | Integer | Nullable | 每日球探投入等級(0-10) (App 預設 0) |
 
 ### 2.3 Players (球員)
 *設計重點：針對老化機制，保留 `initial_stats` 作為對照組。*
@@ -179,3 +181,14 @@ erDiagram
 | `strategy_settings` | JSON | Nullable | (預留) 未來可儲存進攻/防守戰術參數 |
 | `created_at` | DateTime | Default Now | 建立時間 |
 | `updated_at` | DateTime | Default Now | 更新時間 |
+
+## 2.8 Scouting Records (球探待簽名單紀錄)
+*用途：儲存球隊的球探待簽名單紀錄。*
+
+| 欄位名稱 | 類型 | 屬性 | 說明 |
+| :--- | :--- | :--- | :--- |
+| `id` | Integer | PK, Auto Inc | 戰術配置 ID |
+| `team_id` | Integer | FK(teams.id), Unique | 所屬球隊 (一對一) |
+| `player_id` | Integer | FK(players.id) | 球員 ID |
+| `created_at` | DateTime | Default Now | 建立時間 |
+| `expire_at` | DateTime | NOT NULL | 過期時間 |

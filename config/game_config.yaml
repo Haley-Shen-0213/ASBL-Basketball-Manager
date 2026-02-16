@@ -527,3 +527,12 @@ tactics_system:
         role: "Bench"
         save_to_db: false # 不存入資料庫
         record_stats: false # 不記錄生涯數據
+      
+# =============================================================================
+# 5. 球探設定 (Scout System)
+# =============================================================================
+scout_system:
+  cost_per_level: 1000      # 每日球探費用倍率 (1000 * n)
+  max_level: 10             # 最大投入等級
+  pending_expire_days: 7    # 待簽名單保留天數
+  inactive_team_days: 7     # 球隊未登入判定天數 (超過則清空待簽名單)

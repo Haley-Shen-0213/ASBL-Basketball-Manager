@@ -162,3 +162,35 @@ def get_my_team():
         'team_id': user.team.id,
         'team_name': user.team.name
     })
+
+@team_bp.route('/list', methods=['GET'])
+def get_all_teams():
+    """
+    取得所有球隊列表，包含排名、總評分等資訊
+    """
+    teams = Team.query.all()
+    result = []
+    
+    for t in teams:
+        # 計算球隊總評分 (加總所有球員的 rating)
+        # 注意：這裡簡單加總，若有效能問題可改為 SQL Sum
+        total_rating = db.session.query(func.sum(Player.rating)).filter_by(team_id=t.id).scalar() or 0
+        
+        result.append({
+            'id': t.id,
+            'name': t.name,
+            'reputation': t.reputation,
+            'season_wins': t.season_wins,
+            'season_losses': t.season_losses,
+            'total_rating': int(total_rating),
+            'player_count': t.players.count()
+        })
+    
+    # 排序邏輯： 聲望 > 勝場 > 總評分
+    result.sort(key=lambda x: (x['reputation'], x['season_wins'], x['total_rating']), reverse=True)
+    
+    # 補上排名
+    for idx, data in enumerate(result):
+        data['rank'] = idx + 1
+        
+    return jsonify(result)

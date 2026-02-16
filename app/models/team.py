@@ -13,20 +13,23 @@ class Team(db.Model):
     funds = db.Column(db.BigInteger, default=300000, comment='球隊資金')
     reputation = db.Column(db.Integer, default=0, comment='球隊聲望')
     
-    # [新增] 場館與粉絲團
+    # 場館與粉絲團
     arena_name = db.Column(db.String(64), nullable=True, comment='場館名稱')
     fanpage_name = db.Column(db.String(64), nullable=True, comment='粉絲團名稱')
     
-    # [新增] 球探
+    # 球探
     scout_chances = db.Column(db.Integer, default=100, nullable=False, comment='剩餘球探次數')
+    daily_scout_level = db.Column(db.Integer, default=0, nullable=False, comment='每日球探投入等級(0-10)')
     
-    # [新增] 戰績快取 (用於 Dashboard 快速顯示)
+    # 戰績快取
     season_wins = db.Column(db.Integer, default=0, comment='本季勝場')
     season_losses = db.Column(db.Integer, default=0, comment='本季敗場')
     
     # 關聯
     players = db.relationship('Player', backref='team', lazy='dynamic')
     contracts = db.relationship('Contract', backref='team', lazy='dynamic')
+    # 待簽球員關聯
+    scouting_records = db.relationship('ScoutingRecord', backref='team', lazy='dynamic', cascade="all, delete-orphan")
 
     def __repr__(self):
         return f'<Team {self.name}>'

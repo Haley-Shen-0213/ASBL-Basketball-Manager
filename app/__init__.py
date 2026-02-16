@@ -30,10 +30,12 @@ def create_app(config_class=Config):
     from app.routes.auth import auth_bp
     from app.routes.team import team_bp
     from app.routes.game import game_bp
+    from app.routes.scout import scout_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(team_bp)
     app.register_blueprint(game_bp)
+    app.register_blueprint(scout_bp)
 
     # 導入 Models 以便 SQLAlchemy (和 Migrate) 能追蹤到
     from app import models

@@ -765,3 +765,44 @@
 
 --
 
+## 2026-02-16 17:00 : 球探系統全端實作與環境填充 (Scout System Full-Stack & CPU Teams)
+
+  ### ✅ 進度摘要
+  本次更新完成了 **球探系統 (Scout System)** 的全端開發，包含每日自動投入設定、手動搜尋、待簽名單管理與簽約邏輯。同時，為了豐富遊戲環境，實作了 **CPU 球隊生成腳本**，可一鍵生成 35 支具備完整 15 人名單與戰術配置的 NPC 球隊，為聯賽模擬做好準備。
+
+  ### 🛠️ 技術細節
+
+  1.  **球探系統實作 (Scout System)**
+      -   **資料庫模型 (`app/models/scout.py`)**:
+          -   新增 `ScoutingRecord`: 關聯球隊與球員，並設定 `expire_at` (過期時間)。
+          -   更新 `Team`: 新增 `scout_chances` (剩餘次數) 與 `daily_scout_level` (每日投入等級)。
+      -   **業務邏輯 (`app/services/scout_service.py`)**:
+          -   **生成邏輯**: 呼叫 `PlayerGenerator` 生成自由球員並寫入待簽名單。
+          -   **每日結算**: 實作 `process_daily_scout_event`，處理資金扣除、自動搜尋與過期名單清理。
+          -   **簽約邏輯**: 實作 `sign_player`，將球員從待簽名單轉移至正式名單，並自動產生合約。
+      -   **API 端點 (`app/routes/scout.py`)**:
+          -   `POST /api/scout/use`: 執行單次或多次手動搜尋。
+          -   `GET /api/scout/pending`: 取得目前待簽球員列表 (含倒數時間)。
+          -   `POST /api/scout/sign`: 執行簽約動作。
+      -   **前端介面 (`frontend/src/components/ScoutPage.tsx`)**:
+          -   實作互動式儀表板，整合每日投入設定滑桿與手動搜尋按鈕。
+          -   待簽名單列表支援依能力、薪資、剩餘時間排序，並提供簽約操作。
+
+  2.  **環境填充工具 (`scripts/generate_cpu_teams.py`)**
+      -   實作自動化腳本，生成 35 支 CPU 球隊。
+      -   **完整流程**: 建立 User (Manager) -> 建立 Team -> 生成 15 人合法名單 -> 建立 TeamTactics (全選登錄)。
+      -   **效益**: 解決了開發初期缺乏對手進行聯賽測試的問題。
+
+  3.  **配置與整合**
+      -   **Config**: 更新 `game_config.yaml`，新增 `scout_system` 區塊 (費用、過期天數等)。
+      -   **Frontend**: 更新 `App.tsx`，正式啟用球探中心路由。
+
+  ### 📝 筆記
+  -   **交易安全性**: 在 `ScoutService` 中使用了 `db.session.commit()` 確保扣除次數與生成球員的原子性 (Atomicity)。
+  -   **效能**: CPU 球隊生成腳本執行 35 隊約需 15-20 秒 (視硬體而定)，主要開銷在於 `TeamCreator` 的 Reroll 機制，但這是為了確保 NPC 球隊陣容合規的必要成本。
+
+  ### 🔜 下一步計畫
+  -   **聯賽排程系統**: 設計賽季行事曆 (Schedule) 與對戰組合生成演算法。
+  -   **每日模擬排程**: 整合 `MatchEngine` 與排程系統，實作每日自動模擬比賽的功能。
+
+--

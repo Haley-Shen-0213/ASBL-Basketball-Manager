@@ -1,7 +1,7 @@
 // frontend/src/components/TacticsPage.tsx
 // 專案路徑: frontend/src/components/TacticsPage.tsx
 // 模組名稱: 戰術與陣容設定頁面
-// 描述: 提供球隊登錄名單 (Active Roster) 的管理介面，規則由後端 API 動態驅動。
+// 描述: 提供球隊登錄名單 (Active Roster) 的管理介面，樣式已與 PlayerRoster 對齊。
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
@@ -13,7 +13,6 @@ import {
 // 型別定義
 // ==========================================
 
-// 球員簡要資訊
 interface PlayerLite {
   id: number | string;
   name: string;
@@ -24,7 +23,6 @@ interface PlayerLite {
   is_active: boolean;
 }
 
-// 規則設定型別 (對應後端 YAML 結構)
 interface TacticsConfig {
   roster_size: number;
   constraints: {
@@ -34,8 +32,50 @@ interface TacticsConfig {
   };
 }
 
-// 角色權重排序 (用於列表排序)
+// ==========================================
+// 樣式與常數 (與 PlayerRoster.tsx 對齊)
+// ==========================================
+
 const ROLE_ORDER = ['Star', 'Starter', 'Rotation', 'Role', 'Bench'];
+
+const ROLE_TRANSLATION: Record<string, string> = { 
+  'Star': '明星', 'Starter': '先發', 'Rotation': '綠葉', 'Role': '功能', 'Bench': '板凳' 
+};
+
+const getGradeStyle = (grade: string) => {
+  switch (grade) {
+    case 'SSR': return 'bg-yellow-400 text-red-600 border-yellow-500 font-black';
+    case 'SS':  return 'bg-pink-400 text-white border-pink-500 font-bold';
+    case 'S':   return 'bg-red-600 text-white border-red-700 font-bold';
+    case 'A':   return 'bg-blue-600 text-white border-blue-700 font-bold';
+    case 'B':   return 'bg-green-600 text-white border-green-700 font-bold';
+    case 'C':   return 'bg-white text-black border-gray-300 font-bold';
+    case 'G':   return 'bg-black text-white border-gray-600 font-bold';
+    default:    return 'bg-gray-200 text-gray-800';
+  }
+};
+
+const getPosColor = (pos: string) => {
+  switch (pos) {
+    case 'C': return 'text-red-500'; // 在深色背景稍微調亮一點點，或保持原樣
+    case 'PF': return 'text-orange-500';
+    case 'SF': return 'text-blue-500';
+    case 'SG': return 'text-green-500';
+    case 'PG': return 'text-yellow-500';
+    default: return 'text-gray-500';
+  }
+};
+
+const getRoleStyle = (role: string) => {
+  switch (role) {
+    case 'Star': return 'bg-purple-100 text-purple-800 border-purple-200';
+    case 'Starter': return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'Rotation': return 'bg-green-100 text-green-800 border-green-200';
+    case 'Role': return 'bg-orange-100 text-orange-800 border-orange-200';
+    case 'Bench': return 'bg-gray-100 text-gray-600 border-gray-200';
+    default: return 'bg-gray-50 text-gray-500';
+  }
+};
 
 // ==========================================
 // 主組件
@@ -53,8 +93,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
     const initPage = async () => {
       setLoading(true);
       try {
-        // 模擬：如果後端還沒實作 config API，這裡提供一個預設值防止崩潰
-        // 實際運作請確保 /api/system/config/tactics 存在
         const defaultConfig: TacticsConfig = {
           roster_size: 15,
           constraints: {
@@ -64,8 +102,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
           }
         };
 
-        // 平行請求：同時取得「系統規則」與「球隊球員」
-        // 注意：若您的 config API 尚未就緒，請暫時註解 fetch config 並使用 defaultConfig
         const [configRes, rosterRes] = await Promise.all([
            fetch('/api/system/config/tactics').catch(() => ({ ok: false, json: async () => defaultConfig })), 
            fetch(`/api/team/${teamId}/roster`)
@@ -82,10 +118,8 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
 
         const rosterData = await rosterRes.json();
 
-        // 設定規則
         setConfig(configData);
 
-        // 設定球員資料
         const mapped: PlayerLite[] = rosterData.map((p: any) => ({
           id: p.id,
           name: p.name,
@@ -93,7 +127,7 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
           role: p.role,
           grade: p.grade,
           rating: p.rating,
-          is_active: p.is_active // 這是從後端讀取的儲存狀態
+          is_active: p.is_active
         })).sort((a: PlayerLite, b: PlayerLite) => b.rating - a.rating);
         
         setAllPlayers(mapped);
@@ -114,7 +148,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
   const activeRoster = useMemo(() => allPlayers.filter(p => p.is_active), [allPlayers]);
   const availablePool = useMemo(() => allPlayers.filter(p => !p.is_active), [allPlayers]);
 
-  // 計算階層使用量
   const stats = useMemo(() => {
     if (!config) return null;
 
@@ -153,24 +186,18 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
 
     setAllPlayers(prev => prev.map(p => {
       if (p.id !== id) return p;
-      
-      // 如果是要加入 (目前是 false)，且人數已滿，則阻止
       if (!p.is_active && activeRoster.length >= config.roster_size) {
         setMessage({ type: 'warning', text: `登錄名單已滿 ${config.roster_size} 人，請先移除球員。` });
         return p;
       }
       return { ...p, is_active: !p.is_active };
     }));
-    // 清除錯誤訊息
     if (message?.type === 'warning') setMessage(null);
   };
 
-  // 自動填補 (Auto-Fill)
   const handleAutoFill = () => {
     if (!config) return;
 
-    // 先清空目前名單，重新計算最佳解 (或者保留目前名單？這裡選擇重新計算以確保最優)
-    // 策略：先取 rating 高的，同時檢查 Tier 限制
     const pool = [...allPlayers].sort((a, b) => b.rating - a.rating);
     const newActiveIds = new Set<number|string>();
     
@@ -186,12 +213,10 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
       const isStarter = p.role === 'Starter';
       const isRotRole = p.role === 'Rotation' || p.role === 'Role';
       
-      // 檢查限制
       if (isStar && t1Count >= config.constraints.tier_1.max) return false;
       if ((isStar || isStarter) && t2Count >= config.constraints.tier_2.max) return false;
       if ((isStar || isStarter || isRotRole) && t3Count >= config.constraints.tier_3.max) return false;
 
-      // 加入
       newActiveIds.add(p.id);
       totalCount++;
       
@@ -202,16 +227,13 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
       return true;
     };
 
-    // Phase A: 優先填入非 Bench 球員 (Tier 1-3)
     for (const p of pool) {
       if (p.role === 'Bench') continue;
       tryAdd(p);
     }
 
-    // Phase B: 若還有空位，填入 Bench 球員
     for (const p of pool) {
       if (p.role !== 'Bench') continue;
-      // Bench 不受 Tier 限制，只受總人數限制
       if (totalCount < config.roster_size) {
         newActiveIds.add(p.id);
         totalCount++;
@@ -236,7 +258,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
     setMessage(null);
   };
 
-  // 提交儲存
   const handleSave = async () => {
     if (!config) return;
     if (!isRulesValid) {
@@ -264,7 +285,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
 
       if (res.ok) {
         setMessage({ type: 'success', text: '戰術名單已成功提交並儲存！' });
-        // 可以在這裡設定一個 timeout 清除訊息
         setTimeout(() => setMessage(null), 3000);
       } else {
         const errData = await res.json();
@@ -280,7 +300,6 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
 
   // --- UI 子組件 ---
   
-  // 統計卡片
   const StatCard = ({ label, current, max, valid }: { label: string, current: number, max: number, valid: boolean }) => (
     <div className={`flex flex-col items-center p-3 rounded-xl border transition-all duration-300
       ${valid ? 'bg-white/5 border-white/10' : 'bg-red-500/10 border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]'}`}>
@@ -291,40 +310,48 @@ const TacticsPage: React.FC<{ teamId: number }> = ({ teamId }) => {
     </div>
   );
 
-  // 球員列
+  // 球員列表項目 (樣式已對齊 PlayerRoster)
   const PlayerRow = ({ p, actionIcon, onClick }: { p: PlayerLite, actionIcon: React.ReactNode, onClick: () => void }) => (
     <div 
       onClick={onClick}
-      className={`flex items-center justify-between p-2.5 rounded-lg border mb-2 cursor-pointer transition-all hover:scale-[1.01] group
+      className={`flex items-center justify-between p-2 rounded-lg border mb-2 cursor-pointer transition-all hover:scale-[1.01] group
         ${p.is_active 
           ? 'bg-violet-600/10 border-violet-500/30 hover:bg-violet-600/20' 
           : 'bg-white/5 border-white/10 hover:bg-white/10'
         }`}
     >
       <div className="flex items-center gap-3">
-        {/* 位置徽章 */}
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-black shadow-sm
-          ${p.role === 'Star' ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black' : 
-            p.role === 'Starter' ? 'bg-gradient-to-br from-blue-400 to-blue-600 text-white' : 
-            p.role === 'Bench' ? 'bg-gray-700 text-gray-300 border border-gray-600' : 'bg-gradient-to-br from-green-500 to-green-700 text-white'}`}>
+        {/* 等級 (Grade) - 使用標準樣式 */}
+        <div className="w-10 flex justify-center">
+          <span className={`inline-block w-full py-0.5 rounded text-[10px] text-center border shadow-sm ${getGradeStyle(p.grade)}`}>
+            {p.grade}
+          </span>
+        </div>
+
+        {/* 位置 (Position) - 使用標準顏色文字 */}
+        <div className={`w-8 text-center font-black text-lg ${getPosColor(p.position)}`}>
           {p.position}
         </div>
         
         {/* 球員資訊 */}
         <div>
-          <div className={`font-bold text-sm ${p.grade === 'SSR' ? 'text-yellow-400' : 'text-white'}`}>
+          <div className="font-bold text-sm text-white">
             {p.name}
           </div>
           <div className="flex gap-2 text-[10px] items-center mt-0.5">
-            <span className="px-1.5 py-0.5 rounded bg-white/10 text-gray-300 border border-white/5">{p.role}</span>
-            <span className="text-blue-400 font-mono font-bold">RTG: {p.rating}</span>
-            <span className="text-gray-500 font-mono">{p.grade}</span>
+            {/* 定位 (Role) - 使用標準樣式與翻譯 */}
+            <span className={`px-2 py-0.5 rounded text-[10px] border ${getRoleStyle(p.role)}`}>
+              {ROLE_TRANSLATION[p.role] || p.role}
+            </span>
+            <span className={`font-mono font-bold ${p.rating >= 1200 ? 'text-amber-400' : 'text-gray-400'}`}>
+              RTG: {p.rating}
+            </span>
           </div>
         </div>
       </div>
       
       {/* 操作圖示 */}
-      <div className="text-gray-500 transition-colors">
+      <div className="text-gray-500 transition-colors px-2">
         {actionIcon}
       </div>
     </div>

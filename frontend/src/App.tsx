@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 // [新增] 引入 PlayerRoster 組件
 import PlayerRoster from './components/PlayerRoster'; 
 import TacticsPage from './components/TacticsPage';
+import ScoutPage from './components/ScoutPage';
+import TeamsPage from './components/TeamsPage';
 import { 
   Users, Trophy, Calendar, ClipboardList, Search, 
   ShoppingBag, Repeat, MessageSquare, BookOpen, 
@@ -402,7 +404,8 @@ function App() {
           {activeTab === 'dashboard' && <Dashboard teamId={user.teamId} username={user.username} />}
           {activeTab === 'players' && <PlayerRoster teamId={user.teamId} />}
           {activeTab === 'tactics' && <TacticsPage teamId={user.teamId} />}
-          {activeTab === 'scouts' && <div className="text-center mt-20 text-gray-600">球探中心開發中...</div>}
+          {activeTab === 'teams' && <TeamsPage />}
+          {activeTab === 'scouts' && <ScoutPage userId={user.id} />}
           {/* 其他頁面... */}
         </main>
       </div>
