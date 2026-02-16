@@ -23,7 +23,8 @@ class EnginePlayer:
     role: str      # 合約角色 (Star, Starter, etc.) - 用於計算上場時間權重
     grade: str     # 等級 (SSR, S, etc.) - 用於 Phase 2 數據分析
     height: float  # 身高 (cm)
-    age: int # 年齡
+    age: int # 年齡   
+    training_points: int = 0 # [新增] 訓練點數 (用於前端顯示與管理)
     
     # --- 2. 體力系統 (Spec 2) ---
     current_stamina: float = 100.0

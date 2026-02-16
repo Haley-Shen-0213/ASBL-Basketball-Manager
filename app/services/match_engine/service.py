@@ -1,7 +1,8 @@
 # app/services/match_engine/service.py
+# 模組名稱: 資料庫轉引擎適配器
+# 修正: 移除舊的評級推導邏輯，直接使用資料庫中儲存的正確 grade
 
 from app.models.player import Player
-# [修正] Team 定義在 app.models.team
 from app.models.team import Team
 from app.services.match_engine.structures import EngineTeam, EnginePlayer
 
@@ -24,16 +25,9 @@ class DBToEngineAdapter:
         if db_player.contract:
             role = db_player.contract.role
 
-        # 簡單評級推導
-        grade = "B" 
-        if db_player.rating:
-            if db_player.rating >= 950: grade = "SSR"
-            elif db_player.rating >= 900: grade = "SS"
-            elif db_player.rating >= 800: grade = "S"
-            elif db_player.rating >= 700: grade = "A"
-            elif db_player.rating >= 600: grade = "B"
-            elif db_player.rating >= 400: grade = "C"
-            else: grade = "G"
+        # [修正] 直接讀取資料庫中的等級，不再重新推導
+        # 原本的邏輯會導致高數值球員全部變成 SSR
+        grade = db_player.grade if db_player.grade else "G"
 
         return EnginePlayer(
             id=str(db_player.id),
@@ -44,6 +38,7 @@ class DBToEngineAdapter:
             grade=grade,
             height=float(db_player.height),
             age=db_player.age,
+            training_points=db_player.training_points,
             
             # --- 屬性對應 (Mapping) ---
             ath_stamina=float(phy.get('stamina', 50)),

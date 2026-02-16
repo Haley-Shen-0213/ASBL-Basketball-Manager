@@ -1,8 +1,11 @@
 # ASBL 資料庫架構規格書 (Database Schema Specification)
 
-**版本**: 1.1
+**版本**: 1.2
 **最後更新**: 2026-02-16
 **說明**: 本文件定義 ASBL 籃球經理遊戲的核心資料庫結構，對應 SQLAlchemy Models 與實際 DDL。
+**變更記錄**:
+*   v1.1: 初始版本。
+*   v1.2: 新增 `TeamTactics` 表，用於儲存球隊的戰術配置與登錄名單，實現資料解耦。
 
 ---
 
@@ -164,3 +167,15 @@ erDiagram
 | `content` | String(64) | Not Null | 名字內容 |
 | `length` | Integer | Nullable | **[v1.1 修正]** 內容字數 (由 App 計算寫入) |
 | `weight` | Integer | Default 10, Unsigned | 出現權重 |
+
+## 2.7 Team Tactics (球隊戰術配置)
+*用途：儲存球隊的戰術設定，包含 15 人登錄名單。*
+
+| 欄位名稱 | 類型 | 屬性 | 說明 |
+| :--- | :--- | :--- | :--- |
+| `id` | Integer | PK, Auto Inc | 戰術配置 ID |
+| `team_id` | Integer | FK(teams.id), Unique | 所屬球隊 (一對一) |
+| `roster_list` | **JSON** | Not Null | **登錄名單 ID 列表** (例如: `[101, 102, 105...]`) |
+| `strategy_settings` | JSON | Nullable | (預留) 未來可儲存進攻/防守戰術參數 |
+| `created_at` | DateTime | Default Now | 建立時間 |
+| `updated_at` | DateTime | Default Now | 更新時間 |

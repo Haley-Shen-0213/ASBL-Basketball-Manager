@@ -1,4 +1,9 @@
+// frontend/src/App.tsx
+
 import React, { useState, useEffect } from 'react';
+// [新增] 引入 PlayerRoster 組件
+import PlayerRoster from './components/PlayerRoster'; 
+import TacticsPage from './components/TacticsPage';
 import { 
   Users, Trophy, Calendar, ClipboardList, Search, 
   ShoppingBag, Repeat, MessageSquare, BookOpen, 
@@ -395,7 +400,8 @@ function App() {
         
         <main className="flex-1 bg-asbl-main p-6 overflow-y-auto">
           {activeTab === 'dashboard' && <Dashboard teamId={user.teamId} username={user.username} />}
-          {activeTab === 'players' && <div className="text-center mt-20 text-gray-600">球員列表開發中...</div>}
+          {activeTab === 'players' && <PlayerRoster teamId={user.teamId} />}
+          {activeTab === 'tactics' && <TacticsPage teamId={user.teamId} />}
           {activeTab === 'scouts' && <div className="text-center mt-20 text-gray-600">球探中心開發中...</div>}
           {/* 其他頁面... */}
         </main>

@@ -5,6 +5,7 @@ from app import db
 from app.models.team import Team
 from app.models.user import User
 from app.models.player import Player
+from app.models.tactics import TeamTactics
 from app.services.match_engine.service import DBToEngineAdapter
 from app.utils.game_config_loader import GameConfigLoader
 
@@ -53,57 +54,97 @@ def get_team_dashboard(team_id):
 
 @team_bp.route('/<int:team_id>/roster', methods=['GET'])
 def get_team_roster(team_id):
-    """取得球隊的完整球員名單 (包含詳細屬性)"""
+    """
+    取得球隊完整名單
+    [方案 B 實作]
+    1. 讀取 TeamTactics 取得 active_ids 列表
+    2. 遍歷球員，動態標記 is_active 狀態
+    """
     team = Team.query.get_or_404(team_id)
     
-    engine_team = DBToEngineAdapter.convert_team(team)
+    # 1. 嘗試取得戰術設定
+    tactics = TeamTactics.query.filter_by(team_id=team_id).first()
+    
+    # 將 JSON list 轉為 Set 以加速比對 (O(1) lookup)
+    # 若無設定則為空集合
+    active_ids_set = set(tactics.roster_list) if tactics and tactics.roster_list else set()
     
     roster_data = []
-    for p in engine_team.roster:
+    for p in team.players:
+        role = p.contract.role if p.contract else 'Bench'
+        stats = p.detailed_stats or {}
+        
+        # 2. 動態判斷是否登錄
+        is_active = p.id in active_ids_set
+        
         player_dict = {
             'id': p.id,
             'name': p.name,
             'nationality': p.nationality,
             'position': p.position,
-            'role': p.role,
+            'role': role,
             'grade': p.grade,
             'height': p.height,
             'age': p.age,
-            'rating': p.attr_sum,
-            'stats': {
-                'physical': {
-                    'stamina': p.ath_stamina,
-                    'strength': p.ath_strength,
-                    'speed': p.ath_speed,
-                    'jump': p.ath_jump,
-                    'health': p.talent_health
-                },
-                'offense': {
-                    'touch': p.shot_touch,
-                    'release': p.shot_release,
-                    'accuracy': p.shot_accuracy,
-                    'range': p.shot_range,
-                    'pass': p.off_pass,
-                    'dribble': p.off_dribble,
-                    'handle': p.off_handle,
-                    'move': p.off_move
-                },
-                'defense': {
-                    'rebound': p.def_rebound,
-                    'boxout': p.def_boxout,
-                    'contest': p.def_contest,
-                    'disrupt': p.def_disrupt
-                },
-                'mental': {
-                    'off_iq': p.talent_offiq,
-                    'def_iq': p.talent_defiq,
-                    'luck': p.talent_luck
-                }
-            }
+            'rating': p.rating,
+            'is_active': is_active, # 這裡回傳動態計算的結果
+            'stats': stats
         }
         roster_data.append(player_dict)
 
     return jsonify(roster_data)
+
+@team_bp.route('/<int:team_id>/roster/active', methods=['POST'])
+def update_active_roster(team_id):
+    """
+    [方案 B 實作] 更新球隊登錄名單
+    Payload: { "player_ids": [1, 2, 3, ...] }
+    邏輯: 更新或建立 TeamTactics 紀錄
+    """
+    team = Team.query.get_or_404(team_id)
+    data = request.get_json()
+    
+    if not data or 'player_ids' not in data:
+        return jsonify({'error': 'Missing player_ids list'}), 400
+        
+    # 確保 ID 列表為整數 (前端可能傳字串)
+    try:
+        new_active_ids = [int(pid) for pid in data['player_ids']]
+    except ValueError:
+        return jsonify({'error': 'Invalid player ID format'}), 400
+    
+    # 讀取設定檔進行驗證 (人數上限)
+    config = GameConfigLoader.get('tactics_system')
+    limit = config.get('roster_size', 15)
+    
+    if len(new_active_ids) > limit:
+        return jsonify({'error': f'Roster size exceeds limit of {limit}'}), 400
+
+    try:
+        # 1. 查詢是否已有戰術紀錄
+        tactics = TeamTactics.query.filter_by(team_id=team_id).first()
+        
+        if tactics:
+            # 2a. 更新現有紀錄
+            tactics.roster_list = new_active_ids
+        else:
+            # 2b. 建立新紀錄
+            tactics = TeamTactics(
+                team_id=team_id,
+                roster_list=new_active_ids
+            )
+            db.session.add(tactics)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Roster updated successfully',
+            'active_count': len(new_active_ids)
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @team_bp.route('/my', methods=['POST'])
 def get_my_team():

@@ -486,3 +486,44 @@ match_engine:
 
       # [Spec 6.5] 抄截歸屬
       steal_weight: ['def_disrupt', 'talent_defiq', 'ath_speed', 'def_contest'] # 誰最容易拿到抄截
+      
+# =============================================================================
+# 4. 戰術與陣容設定 (Tactics & Roster)
+# 對應規格書: ASBL Tactics & Roster Specification v1.2
+# =============================================================================
+tactics_system:
+  roster_size: 15 # 登錄名單固定人數
+  
+  # 角色階層限制 (Cumulative Constraints)
+  # 檢查邏輯: 累計該階層包含的角色數量，不可超過 max
+  constraints:
+    tier_1:
+      max: 3
+      roles: ["Star"]
+      desc: "核心巨星上限"
+    
+    tier_2:
+      max: 5
+      roles: ["Star", "Starter"]
+      desc: "主力陣容上限"
+    
+    tier_3:
+      max: 12
+      roles: ["Star", "Starter", "Rotation", "Role"]
+      desc: "主要輪替上限"
+      
+    # Tier 4 是隱性規則: 剩餘名額必須由 Bench 填補 (或系統生成的幽靈球員)
+
+  # 自動填補設定 (Auto-Fill)
+  auto_fill:
+    sort_by: "rating" # 優先順序依據 (attr_sum)
+    
+    # 緊急填補機制 (Phantom Players)
+    emergency:
+      enabled: true
+      trigger_threshold: 15 # 若名單少於此數則觸發
+      phantom_player:
+        grade: "G"
+        role: "Bench"
+        save_to_db: false # 不存入資料庫
+        record_stats: false # 不記錄生涯數據

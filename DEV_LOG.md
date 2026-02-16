@@ -729,3 +729,39 @@
 -   **比賽直播 UI**: 設計比賽模擬的視覺化介面，解析 Play-by-Play 文字流。
 
 --
+
+## 2026-02-16 15:30 : 球員名單與戰術配置 UI 實作 (Roster & Tactics UI)
+
+  ### ✅ 進度摘要
+  完成了球隊管理的核心介面開發。實作了 **球員名單 (Player Roster)** 的詳細數據展示與 **戰術配置 (Tactics)** 的互動介面。戰術頁面整合了後端的規則檢核機制（如明星球員數量限制），並提供了「自動填補」與「防呆儲存」功能，確保玩家提交的陣容符合聯賽規範。
+
+  ### 🛠️ 技術細節
+
+  1.  **前端組件開發 (`frontend/src/components/`)**
+      -   **PlayerRoster.tsx**:
+          -   實作球員列表，支援多欄位排序 (等級、位置、能力值)。
+          -   實作詳細資訊 Modal，視覺化展示球員的 20 項細部屬性與訓練點數。
+          -   整合等級顏色標籤 (SSR~G) 與位置樣式。
+      -   **TacticsPage.tsx**:
+          -   實作雙欄式拖曳/點擊介面 (Active Roster vs Available Pool)。
+          -   **動態規則檢核**: 從後端讀取 `tactics_system` 設定，即時計算 Tier 1 (Star) / Tier 2 (Starter) / Tier 3 (Rotation) 的人數限制。
+          -   **自動化功能**: 實作「自動填補 (Auto-Fill)」按鈕，依據能力值與規則自動產生最佳合法陣容。
+          -   **防呆機制**: 當陣容不符規則時，禁用提交按鈕並顯示具體錯誤訊息。
+
+  2.  **後端戰術系統整合**
+      -   **資料庫模型**: 新增 `TeamTactics` 模型，儲存球隊的 `roster_list` (JSON)，實現戰術配置與球隊基本資料的解耦。
+      -   **API 端點**:
+          -   `GET /api/system/config/tactics`: 提供前端動態載入戰術規則。
+          -   `POST /api/team/<id>/roster/active`: 接收並驗證玩家提交的登錄名單 ID 列表。
+          -   `GET /api/team/<id>/roster`: 回傳球員列表時，動態標記 `is_active` 狀態。
+
+  ### 📝 筆記
+  -   **使用者體驗 (UX)**: 戰術頁面的即時驗證回饋 (Real-time Validation) 大幅降低了玩家提交錯誤陣容的挫折感。
+  -   **效能**: 前端採用 `useMemo` 優化了列表排序與規則計算，即使在 40 人名單下操作依然流暢。
+
+  ### 🔜 下一步計畫
+  -   **電腦球隊生成 (CPU Teams)**: 撰寫腳本批量生成 NPC 球隊，填補聯賽空缺。
+  -   **聯賽運作 (League Simulation)**: 實作賽程生成 (Schedule) 與每日自動模擬 (Daily Simulation) 的後端邏輯。
+
+--
+
