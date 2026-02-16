@@ -13,6 +13,9 @@ class User(db.Model):
     password_hash = db.Column(db.String(256), comment='密碼雜湊值')
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='帳號建立時間')
     
+    # [新增] 記錄最後登入時間，用於計算活躍人數
+    last_login = db.Column(db.DateTime, default=datetime.utcnow, comment='最後登入時間')
+    
     # 關聯：使用字串 'Team' 避免循環引用
     team = db.relationship('Team', backref='owner', uselist=False)
 

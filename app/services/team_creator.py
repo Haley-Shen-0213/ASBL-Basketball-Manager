@@ -13,7 +13,7 @@ class TeamCreator:
     """
 
     @classmethod
-    def create_valid_roster(cls, max_attempts: int = 300000) -> List[Dict[str, Any]]:
+    def create_valid_roster(cls, max_attempts: int = 1000000) -> List[Dict[str, Any]]:
         """
         [Spec 5] 生成符合檢核條件的 15 人名單
         邏輯: 

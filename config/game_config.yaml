@@ -23,8 +23,18 @@ name_generation:
 system: # 系統設定
   season_days: 91 # 賽季天數
   games_per_season: 70 # 賽季比賽數
+  
+  # 活躍玩家判定天數 (例如: 7天內有登入視為活躍)
+  active_user_threshold_days: 7
+  
+  # 初始球隊設定
+  initial_team_settings:
+    funds: 300000           # 初始資金 30萬
+    reputation: 0           # 初始聲望 0
+    scout_chances: 100      # 初始球探次數 100
+    roster_limit: 40        # 球員人數上限
 
-  # 新增：季後賽設定 (Playoff Configuration)
+  # 季後賽設定 (Playoff Configuration)
   playoff:
     series_length:
       round_1: 3  # 16強賽 (打滿3場)
@@ -33,7 +43,7 @@ system: # 系統設定
       finals: 5   # 總冠軍賽 (打滿5場)
     
     # 用於程式邏輯判斷是否要強制打滿 (True=打滿, False=搶勝制)
-    force_full_series: True 
+    force_full_series: False 
 
 # =============================================================================
 # 1. 球員生成設定 (Player Generation)

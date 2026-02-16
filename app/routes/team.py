@@ -1,21 +1,53 @@
 # app/routes/team.py
 from flask import Blueprint, jsonify, request
-# [修正] 分開匯入正確的模組位置
+from sqlalchemy import func
+from app import db
 from app.models.team import Team
 from app.models.user import User
+from app.models.player import Player
 from app.services.match_engine.service import DBToEngineAdapter
+from app.utils.game_config_loader import GameConfigLoader
 
 team_bp = Blueprint('team', __name__, url_prefix='/api/team')
 
-@team_bp.route('/<int:team_id>', methods=['GET'])
-def get_team_info(team_id):
-    """取得特定球隊的基本資訊"""
+@team_bp.route('/<int:team_id>/dashboard', methods=['GET'])
+def get_team_dashboard(team_id):
+    """
+    [新增] 取得 Dashboard 所需的完整資訊
+    包含: 基本資訊、球員人數、戰績排名
+    """
     team = Team.query.get_or_404(team_id)
+    
+    # 1. 讀取 Config
+    roster_limit = GameConfigLoader.get('system.initial_team_settings.roster_limit', 40)
+    
+    # 2. 計算球員人數
+    player_count = team.players.count()
+    
+    # 3. 計算排名 (簡易版：依勝場數 > 聲望 排序)
+    # 實際專案應有 League Table，此處使用即時查詢模擬
+    # 查詢有多少隊伍的 (wins, reputation) 比我高
+    better_teams = Team.query.filter(
+        (Team.season_wins > team.season_wins) | 
+        ((Team.season_wins == team.season_wins) & (Team.reputation > team.reputation))
+    ).count()
+    rank = better_teams + 1
+    total_teams = Team.query.count()
+    
     return jsonify({
         'id': team.id,
         'name': team.name,
-        'reputation': team.reputation,
         'funds': team.funds,
+        'reputation': team.reputation,
+        'arena_name': team.arena_name,
+        'fanpage_name': team.fanpage_name,
+        'scout_chances': team.scout_chances,
+        'player_count': player_count,
+        'roster_limit': roster_limit,
+        'season_wins': team.season_wins,
+        'season_losses': team.season_losses,
+        'rank': rank,
+        'total_teams': total_teams,
         'owner': team.owner.username
     })
 

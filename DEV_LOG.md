@@ -690,4 +690,42 @@
 
 --
 
+## 2026-02-16 13:30 : 前端架構初始化與儀表板 API 實作 (Frontend Init & Dashboard API)
 
+### ✅ 進度摘要
+本次更新標誌著專案正式進入全端開發階段。建立了基於 **React + TypeScript + Vite** 的前端架構，並整合 **Tailwind CSS** 進行 UI 開發。後端部分，為了支援前端 Dashboard 的數據顯示，擴充了 `User` 與 `Team` 的資料庫模型（新增最後登入時間、場館資訊、戰績快取），並實作了對應的 API 端點。
+
+### 🛠️ 技術細節
+
+1.  **前端架構搭建 (`frontend/`)**
+    -   **初始化**: 使用 Vite 建立 React + TypeScript 專案。
+    -   **樣式系統**: 設定 Tailwind CSS (`tailwind.config.js`)，定義了專案色系 (`asbl-bg`, `asbl-pink` 等) 與漸層背景。
+    -   **開發配置**: 設定 `vite.config.ts` 中的 Proxy，將 `/api` 請求代理至 Flask 後端 (`http://127.0.0.1:5000`)，解決 CORS 問題。
+    -   **UI 實作 (`App.tsx`)**:
+        -   **AuthPage**: 整合登入與註冊表單，串接後端 `/api/auth`。
+        -   **Dashboard**: 實作球隊首頁，顯示資金、聲望、戰績與球員人數概況。
+        -   **Layout**: 實作響應式 Sidebar 與 Header（包含即時系統在線人數顯示）。
+
+2.  **後端 API 與模型擴充**
+    -   **資料庫模型更新**:
+        -   `User`: 新增 `last_login` 欄位，用於追蹤活躍用戶。
+        -   `Team`: 新增 `arena_name`, `fanpage_name`, `scout_chances`, `season_wins`, `season_losses` 等經營與戰績欄位。
+    -   **API 端點新增**:
+        -   `GET /api/system/stats`: 回傳總註冊人數與活躍人數（定義於 `routes/__init__.py`）。
+        -   `GET /api/team/<id>/dashboard`: 回傳 Dashboard 所需的聚合資訊（包含排名計算）。
+    -   **邏輯更新**:
+        -   `auth.py`: 註冊時讀取 Config 中的 `initial_team_settings` 來設定初始資金與聲望，並同步寫入 `last_login`。
+
+3.  **設定檔更新 (`config/game_config.yaml`)**
+    -   新增 `system.active_user_threshold_days`: 定義活躍用戶判定天數。
+    -   新增 `system.initial_team_settings`: 集中管理初始球隊的資金、聲望與球探次數。
+
+### 📝 筆記
+-   **前後端聯調**: 經測試，前端透過 Vite Proxy 成功呼叫後端 API，登入流程順暢，Dashboard 能正確顯示資料庫中的球隊資訊。
+-   **資料庫遷移**: `User` 與 `Team` 表結構有變動，需執行 `flask db migrate` 與 `flask db upgrade`。
+
+### 🔜 下一步計畫
+-   **球員列表頁面**: 實作前端 Roster 頁面，串接 `/api/team/<id>/roster`，以卡片或列表形式展示球員詳細能力。
+-   **比賽直播 UI**: 設計比賽模擬的視覺化介面，解析 Play-by-Play 文字流。
+
+--
