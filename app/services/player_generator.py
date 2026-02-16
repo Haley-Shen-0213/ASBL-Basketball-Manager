@@ -3,7 +3,9 @@ import random
 import math
 import re
 from app import db
-from app.models.player import Player, Contract
+# [修正] Contract 應該從 app.models.contract 匯入
+from app.models.player import Player
+from app.models.contract import Contract
 from app.models.system import NameLibrary
 from app.utils.game_config_loader import GameConfigLoader
 
@@ -70,7 +72,7 @@ class PlayerGenerator:
         if cls._is_initialized:
             return
 
-        print("[PlayerGenerator] Initializing cache for High Performance Mode...")
+        #print("[PlayerGenerator] Initializing cache for High Performance Mode...")
 
         # 1. 載入姓名庫 (保留 Weight 資訊)
         # 使用 yield_per 優化大量數據讀取
@@ -167,7 +169,7 @@ class PlayerGenerator:
             }
 
         cls._is_initialized = True
-        print(f"[PlayerGenerator] Cache initialized. Validation Rules Compiled.")
+        #print(f"[PlayerGenerator] Cache initialized. Validation Rules Compiled.")
 
     # =========================================================================
     # 1. 姓名生成 (Name Generation) - v3.3 Update
@@ -505,7 +507,7 @@ class PlayerGenerator:
             "age": age,
             "height": height,
             "position": position,
-            "rating": int(total_sum / 20),
+            "rating": total_sum,
             "salary": salary,
             "contract_rule": contract_rule,
             "detailed_stats": detailed_stats,
@@ -542,6 +544,7 @@ class PlayerGenerator:
             age=payload['age'],
             height=payload['height'],
             position=payload['position'],
+            grade=payload['grade'], 
             rating=payload['rating'],
             detailed_stats=payload['detailed_stats'],
             user_id=user_id,

@@ -9,17 +9,17 @@ class TeamCreator:
     """
     ASBL 開隊陣容生成服務 (Pure Logic Version)
     只負責生成符合規則的球員資料結構，不涉及資料庫寫入。
-    對應規格書: Player System Specification v3.3 (2025/12/28 Update)
+    對應規格書: Player System Specification v3.5 (Updated)
     """
 
     @classmethod
-    def create_valid_roster(cls, max_attempts: int = 100000) -> List[Dict[str, Any]]:
+    def create_valid_roster(cls, max_attempts: int = 300000) -> List[Dict[str, Any]]:
         """
         [Spec 5] 生成符合檢核條件的 15 人名單
         邏輯: 
           1. 依據等級分佈生成球員
           2. [Spec 5.4] 針對每一位生成的球員進行「下限檢核」，不合格則單兵重骰
-          3. [Spec 5.2] 針對整隊進行「位置檢核」與「高階覆蓋檢核」，不合格則整隊重骰
+          3. [Spec 5.2] 針對整隊進行「位置檢核」與「分層覆蓋檢核」，不合格則整隊重骰
         Returns:
             List[Dict]: 包含 15 個球員 Payload 的列表
         """
@@ -38,7 +38,7 @@ class TeamCreator:
             roster = []
 
             # 2. 依據等級分佈生成球員
-            # 注意: Python 3.7+ 字典保持插入順序，通常 SSR 會先被執行
+            # 注意: Python 3.7+ 字典保持插入順序
             for grade, count in comp_rules.items():
                 # 取得該等級的能力上限，用於計算下限門檻
                 grade_cap = trainable_caps.get(grade, 9999)
@@ -53,7 +53,7 @@ class TeamCreator:
                     )
                     roster.append(player_payload)
 
-            # 3. 執行整隊陣容檢核 (位置數量 + 高階覆蓋)
+            # 3. 執行整隊陣容檢核 (位置數量 + 分層覆蓋)
             if cls._validate_roster_positions(roster, val_rules):
                 return roster
         
@@ -93,14 +93,14 @@ class TeamCreator:
             if total_score >= lower_bound:
                 return payload
         
-        # 若連續 100 次都失敗，通常代表數據讀取錯誤 (total_score=0) 或下限設定不合理
+        # 若連續多次都失敗，通常代表數據讀取錯誤 (total_score=0) 或下限設定不合理
         raise Exception(f"Failed to generate a qualified player for grade {grade} (Target > {lower_bound}). Last Score: {total_score}")
 
     @staticmethod
     def _validate_roster_positions(roster: List[Dict[str, Any]], rules: Dict[str, Any]) -> bool:
         """
         [Spec 5.2] 檢核整隊位置分佈
-        包含基礎數量檢核與高階球員位置覆蓋檢核
+        包含基礎數量檢核與分層位置覆蓋檢核 (High Tier / Mid Tier)
         """
         # 統計位置數量
         positions = [p['position'] for p in roster]
@@ -124,21 +124,35 @@ class TeamCreator:
         if forward_count < rules.get('min_forwards', 4):
             return False
         
-        # 5. [New v3.3] 高階位置覆蓋檢核 (High-Tier Coverage)
-        # 確保 SSR/SS/S 組合包含所有 5 個位置
-        coverage_rule = rules.get('high_tier_coverage', {})
-        if coverage_rule.get('enabled', False):
-            target_grades = set(coverage_rule.get('target_grades', []))
-            required_positions = set(coverage_rule.get('required_positions', []))
+        # 5. [Updated v3.5] 分層位置覆蓋檢核 (Tiered Coverage)
+        # 支援多組覆蓋規則 (例如: 高階組覆蓋5位置, 中階組覆蓋5位置)
+        coverage_rules = rules.get('coverage_rules', [])
+        
+        # 兼容舊版設定 (若 config 只有 high_tier_coverage 字典)
+        if not coverage_rules and 'high_tier_coverage' in rules:
+            old_rule = rules['high_tier_coverage']
+            if old_rule.get('enabled', False):
+                coverage_rules = [{
+                    'target_grades': old_rule.get('target_grades', []),
+                    'required_positions': old_rule.get('required_positions', [])
+                }]
+
+        # 執行所有覆蓋規則檢查
+        for rule in coverage_rules:
+            target_grades = set(rule.get('target_grades', []))
+            required_positions = set(rule.get('required_positions', []))
             
-            # 篩選出高階球員
-            high_tier_positions = {
+            if not target_grades or not required_positions:
+                continue
+
+            # 篩選出符合該規則等級的球員
+            tier_positions = {
                 p['position'] for p in roster 
                 if p.get('grade') in target_grades
             }
             
-            # 檢查是否包含所有必要位置 (issubset: required 是否被 high_tier 包含)
-            if not required_positions.issubset(high_tier_positions):
+            # 檢查是否包含所有必要位置 (issubset: required 是否被 tier_positions 包含)
+            if not required_positions.issubset(tier_positions):
                 return False
             
         return True

@@ -565,12 +565,12 @@ File: ASBL_Match_Engine_Specification.md
 
 File: ASBL_Player_System_Specification.md
 ------------------------------------------------------------
-# ASBL 籃球遊戲球員系統規格書 (v3.4)
+# ASBL 籃球遊戲球員系統規格書 (v3.5)
 
-**版本**：3.4
+**版本**：3.5
 **文件類型**：核心邏輯規格 (Core Logic Specification)
 **狀態**：已定案 (Confirmed)
-**最後更新**：2026-01-25
+**最後更新**：2026-01-30
 **變更記錄**：
 *   **v1.0 (2025-12-03)**：初始版本，定義生成、成長、老化邏輯。
 *   **v2.0 (2025-12-03)**：
@@ -603,6 +603,8 @@ File: ASBL_Player_System_Specification.md
     *   **新增**：`5.2` 位置檢核條件新增高階位置覆蓋。
 *   **v3.4 (2026-01-25)**：
     *   **修改**：姓名生成邏輯重構。
+*   **v3.5 (2026-01-30)**：
+    *   **修改**：開隊陣容檢核邏輯重構。
 
 ---
 
@@ -879,7 +881,7 @@ CREATE TABLE `system_name_library` (
 *   **(v2.0 已移除)**
 *   **(v1.0 公式 - 已移除)**：~~$(\text{Height} - 100) \times 0.9 + \text{Random}(-5, 5)$。~~
 
-## 5. 開隊陣容檢核 (Team Creation Validation) **(v2.2 新增、v3.2 更新)**
+## 5. 開隊陣容檢核 (Team Creation Validation) **(v2.2 新增、v3.2 更新、v3.5 更新)**
 
 ### 5.1 執行邏輯
 生成 15 人名單 -> 檢查「位置數量」與「等級數量」 -> 若任一條件不符合，則整隊重骰 (Reroll Team)。
@@ -889,19 +891,26 @@ CREATE TABLE `system_name_library` (
 2.  **PG** >= 2
 3.  **PG + SG** >= 4
 4.  **PF + SF** >= 4
-5.  **高階位置覆蓋 (High-Tier Coverage) [New v3.3]**:
-    *   範圍：**SSR (1人) + SS (2人) + S (2人)**，共 5 名球員。
-    *   條件：上述 5 名球員的組合中，必須包含 **C, PF, SF, SG, PG** 五個位置各至少 1 名。
-    *   *目的：確保玩家的高階核心陣容是完整的，避免開局神卡位置嚴重重疊。*
+5.  **分層位置覆蓋 (Tiered Position Coverage) [Update v3.5]**:
+    *   **高階組 (High Tier)**:
+        *   範圍：**SSR (1人) + SS (1人) + S (1人) + A (2人)**，共 5 名球員。
+        *   條件：上述 5 名球員的組合中，必須包含 **C, PF, SF, SG, PG** 五個位置各至少 1 名。
+    *   **中階組 (Mid Tier)**:
+        *   範圍：**B (3人) + C (2人)**，共 5 名球員。
+        *   條件：上述 5 名球員的組合中，必須包含 **C, PF, SF, SG, PG** 五個位置各至少 1 名。
+    *   **低階組 (Low Tier)**:
+        *   範圍：**G (5人)**。
+        *   條件：無位置限制。
+    *   *目的：確保玩家的高階核心與中堅戰力陣容都是完整的，避免開局位置嚴重重疊。*
 
-### 5.3 等級檢核條件 (強制分佈)
+### 5.3 等級檢核條件 (強制分佈) [Update v3.5]
 *   **SSR**: 1 人
-*   **SS**: 2 人
-*   **S**: 2 人
+*   **SS**: 1 人
+*   **S**: 1 人
 *   **A**: 2 人
-*   **B**: 2 人
+*   **B**: 3 人
 *   **C**: 2 人
-*   **G**: 4 人
+*   **G**: 5 人
 
 ### 5.4 開隊球員特殊生成規則 (Initial Roster Stat Constraints) **(v3.3 新增)**
 為了縮小開局隨機範圍，避免玩家初始隊伍中出現過多無法使用的球員，**僅在開隊生成階段**套用以下規則：
@@ -1160,19 +1169,23 @@ generation:
 # =============================================================================
 team_creation:
   # [Spec v3.1 Section 5] 開隊陣容檢核標準
-  composition_count: {SSR: 1, SS: 2, S: 2, A: 2, B: 2, C: 2, G: 4} # 總共 15 人
+  composition_count: {SSR: 1, SS: 1, S: 1, A: 2, B: 3, C: 2, G: 5} # 總共 15 人
   validation:
     min_c: 2       # 最少中鋒數
     min_pg: 2      # 最少控衛數
     min_guards: 4  # PG+SG 總數下限
     min_forwards: 4 # SF+PF 總數下限
     
-    # 新增: Spec 5.2 高階球員位置覆蓋規則
-    # 程式邏輯: 檢查 team 中 grade 在 target_grades 的球員，其 position 集合是否包含 required_positions 的所有元素
-    high_tier_coverage:
-      enabled: True
-      target_grades: ["SSR", "SS", "S"]
-      required_positions: ["C", "PF", "SF", "SG", "PG"]
+    # [Spec v3.5 Section 5.2] 分層位置覆蓋規則 (Updated)
+    # 程式邏輯: 遍歷列表中的每一條規則，檢查符合 target_grades 的球員集合是否包含 required_positions
+    coverage_rules:
+      - name: "High Tier (SSR-A)"
+        target_grades: ["SSR", "SS", "S", "A"]
+        required_positions: ["C", "PF", "SF", "SG", "PG"]
+      
+      - name: "Mid Tier (B-C)"
+        target_grades: ["B", "C"]
+        required_positions: ["C", "PF", "SF", "SG", "PG"]
 
   # [Spec v3.2 Section 5.4] 開隊球員特殊生成規則 (New)
   # 用途: 僅在開隊時啟用能力下限限制，縮小隨機範圍
@@ -2237,17 +2250,17 @@ class TeamCreator:
     """
     ASBL 開隊陣容生成服務 (Pure Logic Version)
     只負責生成符合規則的球員資料結構，不涉及資料庫寫入。
-    對應規格書: Player System Specification v3.3 (2025/12/28 Update)
+    對應規格書: Player System Specification v3.5 (Updated)
     """
 
     @classmethod
-    def create_valid_roster(cls, max_attempts: int = 100000) -> List[Dict[str, Any]]:
+    def create_valid_roster(cls, max_attempts: int = 300000) -> List[Dict[str, Any]]:
         """
         [Spec 5] 生成符合檢核條件的 15 人名單
         邏輯: 
           1. 依據等級分佈生成球員
           2. [Spec 5.4] 針對每一位生成的球員進行「下限檢核」，不合格則單兵重骰
-          3. [Spec 5.2] 針對整隊進行「位置檢核」與「高階覆蓋檢核」，不合格則整隊重骰
+          3. [Spec 5.2] 針對整隊進行「位置檢核」與「分層覆蓋檢核」，不合格則整隊重骰
         Returns:
             List[Dict]: 包含 15 個球員 Payload 的列表
         """
@@ -2266,7 +2279,7 @@ class TeamCreator:
             roster = []
 
             # 2. 依據等級分佈生成球員
-            # 注意: Python 3.7+ 字典保持插入順序，通常 SSR 會先被執行
+            # 注意: Python 3.7+ 字典保持插入順序
             for grade, count in comp_rules.items():
                 # 取得該等級的能力上限，用於計算下限門檻
                 grade_cap = trainable_caps.get(grade, 9999)
@@ -2281,7 +2294,7 @@ class TeamCreator:
                     )
                     roster.append(player_payload)
 
-            # 3. 執行整隊陣容檢核 (位置數量 + 高階覆蓋)
+            # 3. 執行整隊陣容檢核 (位置數量 + 分層覆蓋)
             if cls._validate_roster_positions(roster, val_rules):
                 return roster
         
@@ -2321,14 +2334,14 @@ class TeamCreator:
             if total_score >= lower_bound:
                 return payload
         
-        # 若連續 100 次都失敗，通常代表數據讀取錯誤 (total_score=0) 或下限設定不合理
+        # 若連續多次都失敗，通常代表數據讀取錯誤 (total_score=0) 或下限設定不合理
         raise Exception(f"Failed to generate a qualified player for grade {grade} (Target > {lower_bound}). Last Score: {total_score}")
 
     @staticmethod
     def _validate_roster_positions(roster: List[Dict[str, Any]], rules: Dict[str, Any]) -> bool:
         """
         [Spec 5.2] 檢核整隊位置分佈
-        包含基礎數量檢核與高階球員位置覆蓋檢核
+        包含基礎數量檢核與分層位置覆蓋檢核 (High Tier / Mid Tier)
         """
         # 統計位置數量
         positions = [p['position'] for p in roster]
@@ -2352,21 +2365,35 @@ class TeamCreator:
         if forward_count < rules.get('min_forwards', 4):
             return False
         
-        # 5. [New v3.3] 高階位置覆蓋檢核 (High-Tier Coverage)
-        # 確保 SSR/SS/S 組合包含所有 5 個位置
-        coverage_rule = rules.get('high_tier_coverage', {})
-        if coverage_rule.get('enabled', False):
-            target_grades = set(coverage_rule.get('target_grades', []))
-            required_positions = set(coverage_rule.get('required_positions', []))
+        # 5. [Updated v3.5] 分層位置覆蓋檢核 (Tiered Coverage)
+        # 支援多組覆蓋規則 (例如: 高階組覆蓋5位置, 中階組覆蓋5位置)
+        coverage_rules = rules.get('coverage_rules', [])
+        
+        # 兼容舊版設定 (若 config 只有 high_tier_coverage 字典)
+        if not coverage_rules and 'high_tier_coverage' in rules:
+            old_rule = rules['high_tier_coverage']
+            if old_rule.get('enabled', False):
+                coverage_rules = [{
+                    'target_grades': old_rule.get('target_grades', []),
+                    'required_positions': old_rule.get('required_positions', [])
+                }]
+
+        # 執行所有覆蓋規則檢查
+        for rule in coverage_rules:
+            target_grades = set(rule.get('target_grades', []))
+            required_positions = set(rule.get('required_positions', []))
             
-            # 篩選出高階球員
-            high_tier_positions = {
+            if not target_grades or not required_positions:
+                continue
+
+            # 篩選出符合該規則等級的球員
+            tier_positions = {
                 p['position'] for p in roster 
                 if p.get('grade') in target_grades
             }
             
-            # 檢查是否包含所有必要位置 (issubset: required 是否被 high_tier 包含)
-            if not required_positions.issubset(high_tier_positions):
+            # 檢查是否包含所有必要位置 (issubset: required 是否被 tier_positions 包含)
+            if not required_positions.issubset(tier_positions):
                 return False
             
         return True
@@ -3067,15 +3094,12 @@ class MatchEngine:
         # 6. 封阻判定 (Block - Spec 4.3)
         # 若空間擁擠 (sp_bonus <= 0.5)，封阻機率提升
         if sp_bonus <= 0.5:
-            # --- 階段一：觸發判定 (Attempt Check) ---
-            blk_config = formulas.get('block', {})
-            blk_params = blk_config.get('params', {}) # 注意: YAML結構可能在 frontcourt.block 下
-            # 若讀取不到，嘗試從外層讀取 (視 YAML 結構而定，這裡假設在 frontcourt.block)
-            if not blk_config:
-                blk_config = formulas.get('block', {}) # Retry
-            
-            # 讀取公式 Key
+            # --- Config Loading ---
+            blk_config = fc_config.get('block', {})
+            blk_params = blk_config.get('params', {})
             blk_formulas = blk_config.get('formulas', {})
+
+            # --- 階段一：觸發判定 (Attempt Check) ---
             trigger_off_keys = self._resolve_formula(blk_formulas.get('trigger_off', ['off_move']), attr_pools)
             trigger_def_keys = self._resolve_formula(blk_formulas.get('trigger_def', ['def_contest', 'talent_defiq']), attr_pools)
             
@@ -3085,11 +3109,11 @@ class MatchEngine:
             
             # 計算機率
             # 基礎機率 1%
-            base_prob = blk_config.get('params', {}).get('base_prob', 0.01)
+            base_prob = blk_params.get('base_prob', 0.01)
             # 屬性修正: (防守 - 進攻) * 0.0001 (每100點差值+1%)
             attr_mod = (trig_def_val - trig_off_val) * 0.0001
             # 空間懲罰: 空間擁擠時大幅提升封蓋率
-            spacing_penalty = blk_config.get('params', {}).get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
+            spacing_penalty = blk_params.get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
             
             attempt_prob = max(0.0, base_prob + attr_mod + spacing_penalty)
             
@@ -3113,7 +3137,6 @@ class MatchEngine:
                 # Spec: Ratio = Off / Def. 數值越低防守優勢越大.
                 # 轉換為機率: Def / (Off + Def)
                 # 若 Off=500, Def=500 -> 50% 機率蓋掉
-                # 若 Off=400, Def=600 -> 60% 機率蓋掉
                 success_prob = p_def / (p_off + p_def) if (p_off + p_def) > 0 else 0.5
                 
                 if rng.decision(success_prob):
@@ -3124,9 +3147,6 @@ class MatchEngine:
                     # 封蓋失敗 -> 進攻方強行出手 (繼續流程)
                     # 可以在 ctx 中標記 'contested'，影響後續命中率或犯規率 (Optional)
                     ctx['is_contested'] = True
-                    # Log (Optional)
-                    # print(f"Block Attempt Failed: {shooter.name} powered through {blocker.name}")
-                    pass
 
         # 7. 抄截判定 (Steal - Spec 4.4 Full Implementation)
         # 讀取設定
@@ -3498,11 +3518,12 @@ class EnginePlayer:
     # --- 1. 識別與基本資訊 ---
     id: str
     name: str
+    nationality: str # 新增國籍欄位 (Spec v3.4)
     position: str  # 當前場上位置 (PG, SG, SF, PF, C)
     role: str      # 合約角色 (Star, Starter, etc.) - 用於計算上場時間權重
     grade: str     # 等級 (SSR, S, etc.) - 用於 Phase 2 數據分析
     height: float  # 身高 (cm)
-    age: int = 18  # 年齡
+    age: int # 年齡
     
     # --- 2. 體力系統 (Spec 2) ---
     current_stamina: float = 100.0
@@ -4078,7 +4099,7 @@ class StaminaSystem:
         if is_on_court:
             # [Spec 2.3] 消耗公式
             # 消耗量/分 = Coeff * [1 + (1 - 體能%)] + (1 - 健康%)
-            drain_per_min = drain_coeff * (1.0 + (1.0 - stamina_pct)) + (1.0 - health_pct)
+            drain_per_min = drain_coeff * ((1.0 + (1.0 - stamina_pct)) + (1.0 - health_pct))
             drain_per_min *= age_factor # <--- 乘上年齡因子
             change_per_minute = -drain_per_min
         else:
@@ -4600,7 +4621,7 @@ from app.services.match_engine.utils.rng import rng
 
 DEFAULT_PARQUET = "tests/match_bigdata_test/team/team_players.parquet"
 DEFAULT_OUTPUT_ROOT = "tests/match_bigdata_test/output"
-MAX_RETRIES_PER_GAME = 10
+MAX_RETRIES_PER_GAME = 100
 
 
 def now_id() -> str:
@@ -5321,7 +5342,7 @@ def build_report(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--parquet", type=str, default=DEFAULT_PARQUET)
-    parser.add_argument("--cycles", type=int, default=10, help="每 cycle 6 場；總場數=cycles*6")
+    parser.add_argument("--cycles", type=int, default=500, help="每 cycle 6 場；總場數=cycles*6")
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT)
@@ -5619,6 +5640,1606 @@ if __name__ == "__main__":
     except Exception:
         pass
     main()
+
+============================================================
+
+File: tests\player_generator_big_data\analyzer.py
+------------------------------------------------------------
+# tests/player_generator_big_data/analyzer.py
+import pandas as pd
+import numpy as np
+import os
+import json
+import math
+import pyarrow.dataset as ds
+from datetime import datetime, timedelta
+import time
+
+# ==========================================
+# 欄位名稱映射表
+# ==========================================
+FIELD_MAP = {
+    # Untrainable
+    'physical_stamina': '體力',
+    'physical_strength': '力量',
+    'physical_speed': '速度',
+    'physical_jumping': '彈跳',
+    'physical_health': '健康',
+    'offense_touch': '手感',
+    'offense_release': '出手速度',
+    'mental_off_iq': '進攻智商',
+    'mental_def_iq': '防守智商',
+    'mental_luck': '運氣',
+    
+    # Trainable
+    'offense_accuracy': '投籃準心',
+    'offense_range': '射程',
+    'offense_passing': '傳球',
+    'offense_dribble': '運球',
+    'offense_handle': '控球',
+    'offense_move': '跑位',
+    'defense_rebound': '籃板',
+    'defense_boxout': '卡位',
+    'defense_contest': '干擾',
+    'defense_disrupt': '抄截'
+}
+
+# Base Caps Definition for Validation
+BASE_CAPS = {'G': 800, 'C': 700, 'B': 650, 'A': 600, 'S': 550, 'SS': 550, 'SSR': 550}
+
+class BigDataAnalyzer:
+    def __init__(self, config, data_path):
+        self.config = config
+        self.data_path = data_path
+        self.report_lines = []
+        self.meta = {}
+        
+        # 統計容器 (Aggregators)
+        self.stats = {
+            'total_rows': 0,
+            'grade_counts': {},
+            
+            # [New] Name & Language Stats
+            'lang_counts': {},       # 語系統計 {code: count}
+            'unique_names': set(),   # 唯一姓名集合 (用於計算重複率)
+            
+            # Height
+            'height_counts': {}, 
+            'height_sum': 0.0,
+            'height_sq_sum': 0.0,
+            
+            # Position Matrix
+            'pos_matrix': {}, 
+            
+            # KPI 3.1.C: Rating by Detailed Height & Grade
+            'rating_matrix': {},
+
+            # Untrainable (Sum Ranges)
+            'untrainable_sum_ranges': {}, 
+            
+            # Histograms
+            'stat_histograms_by_grade': {}, 
+            'stat_histograms_by_pos': {},
+            
+            # Trainable (Slices & Caps)
+            'trainable_slices': {}, 
+            'trainable_caps': {}, 
+            
+            # Age
+            'age_dist': {}, 
+            
+            # Violations & Monitors
+            'violations': [],
+            
+            # KPI 3.6 Small Player Monitor by Grade
+            'small_player_stats': {} 
+        }
+
+    def _log(self, text):
+        self.report_lines.append(text)
+
+    def _load_metadata(self):
+        meta_path = os.path.join(self.data_path, "execution_meta.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, 'r') as f:
+                self.meta = json.load(f)
+        else:
+            self.meta = {
+                "start_time": "N/A", "end_time": "N/A", "duration_seconds": 0,
+                "total_rows": 0, "peak_cpu": 0, "peak_ram_gb": 0, "avg_speed": 0
+            }
+
+    def run_analysis(self):
+        """執行分析並生成報告"""
+        self._load_metadata()
+        self._write_project_journal()
+        self._process_stream()
+        
+        self._write_execution_summary()
+        self._write_name_analysis()      # [New] 新增名字與語系分析報告
+        self._write_height_analysis() 
+        self._write_position_matrix() 
+        self._write_rating_matrix()   
+        self._write_grade_distribution() 
+        self._write_untrainable_analysis() 
+        self._write_trainable_analysis()   
+        self._write_age_analysis()    
+        self._write_violations()      
+        
+        return "\n".join(self.report_lines)
+
+    def _write_project_journal(self):
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        self._log(f"# {now_str} 專案開發日誌：ASBL 球員生成系統大數據驗證架構 (v2.7)")
+        self._log(f"**Project Journal: ASBL Player Generation System - Big Data Verification Architecture (v2.7)**\n")
+        self._log(f"**日期**: {now_str}")
+        self._log(f"**參與者**: Product Owner (User), Lead Architect (Monica)")
+        self._log(f"**主題**: 擴增姓名與語系多樣性分析 (Name Variety Analysis)\n")
+        self._log(f"## 1. 前言：測試目標 (Preface)")
+        self._log(f"本次更新 (v2.7) 新增了針對 `PlayerGenerator` 姓名庫的統計分析。")
+        self._log(f"目標是驗證多國語系 (Nationality) 的出現機率是否符合設定，並監測姓名重複率以評估詞庫豐富度。\n")
+
+    def _process_stream(self):
+        print("[Analyzer] 開始串流掃描數據 (Aggregation Mode)...")
+        t0 = time.time()
+        
+        files = [
+            os.path.join(self.data_path, f) 
+            for f in os.listdir(self.data_path) 
+            if f.endswith('.parquet')
+        ]
+        
+        if not files:
+            print("[Error] 目錄中找不到任何 .parquet 檔案！")
+            return
+
+        dataset = ds.dataset(files, format="parquet")
+        
+        # Bins Definitions
+        pos_h_bins = [0, 189, 199, 209, 300]
+        pos_h_labels = ['< 190', '190-199', '200-209', '>= 210']
+        
+        det_h_bins = [0, 169, 179, 189, 199, 209, 219, 300]
+        det_h_labels = ['< 170', '170-179', '180-189', '190-199', '200-209', '210-219', '>= 220']
+        
+        stat_bins = [0, 10, 40, 60, 89, 99]
+        
+        # Columns (Added 'nationality')
+        cols = [
+            'grade', 'position', 'height', 'age', 'name', 'nationality', 'rating',
+            # Untrainable
+            'physical_stamina', 'physical_strength', 'physical_speed', 'physical_jumping', 'physical_health',
+            'offense_touch', 'offense_release', 'mental_off_iq', 'mental_def_iq', 'mental_luck',
+            # Trainable
+            'offense_accuracy', 'offense_range', 'offense_passing', 'offense_dribble', 'offense_handle', 'offense_move',
+            'defense_rebound', 'defense_boxout', 'defense_contest', 'defense_disrupt'
+        ]
+        
+        schema_names = dataset.schema.names
+        scan_cols = [c for c in cols if c in schema_names]
+        
+        untrainable_cols = [c for c in scan_cols if c in [
+            'physical_stamina', 'physical_strength', 'physical_speed', 'physical_jumping', 'physical_health',
+            'offense_touch', 'offense_release', 'mental_off_iq', 'mental_def_iq', 'mental_luck'
+        ]]
+        trainable_cols = [c for c in scan_cols if c in [
+            'offense_accuracy', 'offense_range', 'offense_passing', 'offense_dribble', 'offense_handle', 'offense_move',
+            'defense_rebound', 'defense_boxout', 'defense_contest', 'defense_disrupt'
+        ]]
+
+        for batch in dataset.to_batches(columns=scan_cols, batch_size=100000):
+            df = batch.to_pandas()
+            self.stats['total_rows'] += len(df)
+            
+            # [New] Language Stats
+            if 'nationality' in df.columns:
+                l_counts = df['nationality'].value_counts()
+                for l, c in l_counts.items():
+                    self.stats['lang_counts'][l] = self.stats['lang_counts'].get(l, 0) + c
+            
+            # [New] Name Uniqueness
+            if 'name' in df.columns:
+                # 將該批次的唯一姓名加入全域集合
+                batch_unique = set(df['name'].unique())
+                self.stats['unique_names'].update(batch_unique)
+
+            # 1. Grade Counts
+            g_counts = df['grade'].value_counts()
+            for g, c in g_counts.items():
+                self.stats['grade_counts'][g] = self.stats['grade_counts'].get(g, 0) + c
+                
+            # 2. Height Stats
+            h_counts = df['height'].value_counts()
+            for h, c in h_counts.items():
+                self.stats['height_counts'][h] = self.stats['height_counts'].get(h, 0) + c
+            
+            h_vals = df['height'].values
+            self.stats['height_sum'] += np.sum(h_vals)
+            self.stats['height_sq_sum'] += np.sum(h_vals ** 2)
+            
+            # 3. Position Matrix
+            pos_h_cuts = pd.cut(df['height'], bins=pos_h_bins, labels=pos_h_labels)
+            pos_grp = df.groupby([pos_h_cuts, 'position'], observed=True).size()
+            for (h_grp, pos), count in pos_grp.items():
+                self.stats['pos_matrix'][(h_grp, pos)] = self.stats['pos_matrix'].get((h_grp, pos), 0) + count
+            
+            # 3.1.C Rating Matrix
+            if 'rating' in df.columns:
+                det_h_cuts = pd.cut(df['height'], bins=det_h_bins, labels=det_h_labels)
+                rating_grp = df.groupby([det_h_cuts, 'grade'], observed=True)['rating'].agg(['sum', 'count'])
+                for (h_grp, grade), row in rating_grp.iterrows():
+                    key = (h_grp, grade)
+                    if key not in self.stats['rating_matrix']:
+                        self.stats['rating_matrix'][key] = {'sum': 0, 'count': 0}
+                    self.stats['rating_matrix'][key]['sum'] += row['sum']
+                    self.stats['rating_matrix'][key]['count'] += row['count']
+
+            # 4. Histograms by Grade
+            grouped_g = df.groupby('grade')
+            for grade, sub_df in grouped_g:
+                if grade not in self.stats['stat_histograms_by_grade']:
+                    self.stats['stat_histograms_by_grade'][grade] = {}
+                
+                target_cols = untrainable_cols + trainable_cols
+                for col in target_cols:
+                    counts, _ = np.histogram(sub_df[col], bins=stat_bins)
+                    if col not in self.stats['stat_histograms_by_grade'][grade]:
+                        self.stats['stat_histograms_by_grade'][grade][col] = np.zeros(len(stat_bins)-1, dtype=int)
+                    self.stats['stat_histograms_by_grade'][grade][col] += counts
+                    
+                    # Check bounds
+                    c_min, c_max = sub_df[col].min(), sub_df[col].max()
+                    if c_min < 1 or c_max > 99:
+                        self.stats['violations'].append(f"等級 {grade} 屬性 {FIELD_MAP.get(col, col)} 超出範圍 1-99 (Val: {c_min}-{c_max})")
+
+            # 5. Histograms by Position
+            grouped_p = df.groupby('position')
+            for pos, sub_df in grouped_p:
+                if pos not in self.stats['stat_histograms_by_pos']:
+                    self.stats['stat_histograms_by_pos'][pos] = {}
+                for col in trainable_cols:
+                    counts, _ = np.histogram(sub_df[col], bins=stat_bins)
+                    if col not in self.stats['stat_histograms_by_pos'][pos]:
+                        self.stats['stat_histograms_by_pos'][pos][col] = np.zeros(len(stat_bins)-1, dtype=int)
+                    self.stats['stat_histograms_by_pos'][pos][col] += counts
+
+            # Untrainable Sum Check
+            if untrainable_cols:
+                batch_u_sums = df[untrainable_cols].sum(axis=1)
+                temp_df = pd.DataFrame({'grade': df['grade'], 'u_sum': batch_u_sums})
+                grp_stats = temp_df.groupby('grade')['u_sum'].agg(['min', 'max'])
+                for g in grp_stats.index:
+                    g_min, g_max = grp_stats.loc[g, 'min'], grp_stats.loc[g, 'max']
+                    if g not in self.stats['untrainable_sum_ranges']:
+                        self.stats['untrainable_sum_ranges'][g] = {'min': 9999, 'max': 0}
+                    curr = self.stats['untrainable_sum_ranges'][g]
+                    curr['min'] = min(curr['min'], g_min)
+                    curr['max'] = max(curr['max'], g_max)
+
+            # Trainable Stats (Slices & Caps & Small Player Monitor)
+            if trainable_cols:
+                t_sum = df[trainable_cols].sum(axis=1)
+                t_bins = list(range(0, 1001, 100))
+                t_cuts = pd.cut(t_sum, bins=t_bins, right=False, labels=False)
+                
+                slice_grp = df.groupby(['grade', t_cuts], observed=True).size()
+                for (g, bin_idx), count in slice_grp.items():
+                    if g not in self.stats['trainable_slices']: self.stats['trainable_slices'][g] = {}
+                    self.stats['trainable_slices'][g][bin_idx] = self.stats['trainable_slices'][g].get(bin_idx, 0) + count
+                    
+                temp_t_df = pd.DataFrame({'grade': df['grade'], 't_sum': t_sum})
+                grp_max = temp_t_df.groupby('grade')['t_sum'].max()
+                trash_mask = temp_t_df['t_sum'] < 100
+                grp_trash = temp_t_df[trash_mask].groupby('grade').size()
+                
+                all_grades = set(grp_max.index) | set(grp_trash.index)
+                for g in all_grades:
+                    if g not in self.stats['trainable_caps']: 
+                        self.stats['trainable_caps'][g] = {'max': 0, 'trash': 0}
+                    if g in grp_max:
+                        self.stats['trainable_caps'][g]['max'] = max(self.stats['trainable_caps'][g]['max'], grp_max[g])
+                    if g in grp_trash:
+                        self.stats['trainable_caps'][g]['trash'] += grp_trash[g]
+                        
+                # Monitor 3.6: Small Player Overflow Check
+                is_small = df['height'] <= 189
+                if is_small.any():
+                    small_df = pd.DataFrame({
+                        'grade': df.loc[is_small, 'grade'],
+                        't_sum': t_sum[is_small]
+                    })
+                    
+                    for grade, sub_df in small_df.groupby('grade'):
+                        cap = BASE_CAPS.get(grade, 9999)
+                        max_val = sub_df['t_sum'].max()
+                        count = len(sub_df)
+                        overflow_count = (sub_df['t_sum'] > cap).sum()
+                        
+                        if grade not in self.stats['small_player_stats']:
+                            self.stats['small_player_stats'][grade] = {'max': 0, 'count': 0, 'overflow_count': 0}
+                        
+                        s = self.stats['small_player_stats'][grade]
+                        s['max'] = max(s['max'], max_val)
+                        s['count'] += count
+                        s['overflow_count'] += overflow_count
+
+            # 6. Age Distribution
+            age_grp = df.groupby(['grade', 'age']).size()
+            for (g, age), count in age_grp.items():
+                if g not in self.stats['age_dist']: self.stats['age_dist'][g] = {}
+                self.stats['age_dist'][g][age] = self.stats['age_dist'][g].get(age, 0) + count
+                
+            if self.stats['total_rows'] % 5000000 == 0:
+                print(f"  Processed {self.stats['total_rows']/1000000:.0f}M rows...")
+                
+        print(f"[Analyzer] 掃描完成。耗時: {time.time() - t0:.2f} 秒")
+
+    def _write_execution_summary(self):
+        m = self.meta
+        duration_str = str(timedelta(seconds=int(m['duration_seconds'])))
+        
+        self._log("📊 [執行摘要報告] Execution Summary Report")
+        self._log("-" * 100)
+        self._log(f"• Log 檔案:      {os.path.join(self.data_path, 'execution_meta.json')}")
+        self._log(f"• 執行時間:      {m['start_time']} ~ {m['end_time']}")
+        self._log(f"• 總耗時:        {duration_str}")
+        self._log(f"• 總生成筆數:    {m['total_rows']:,}")
+        self._log(f"• 平均速度:      {m['avg_speed']:.2f} 筆/秒")
+        self._log(f"• 記憶體峰值:    {m['peak_ram_gb']:.2f} GB")
+        self._log(f"• CPU 峰值:      {m['peak_cpu']:.1f}%")
+        self._log("-" * 100 + "\n")
+
+    def _write_name_analysis(self):
+        """[New] 輸出姓名與語系分析"""
+        self._log("📊 [KPI 3.0] 姓名與語系多樣性 (Name & Nationality Diversity)")
+        self._log("-" * 100)
+        
+        total = self.stats['total_rows']
+        if total == 0: return
+
+        # 1. 語系分佈
+        self._log("🔍 (A) 語系分佈 (Nationality Distribution):")
+        self._log(f"{'Code':<10} | {'Count':<12} | {'Percentage':<12}")
+        self._log("-" * 40)
+        
+        sorted_langs = sorted(self.stats['lang_counts'].items(), key=lambda x: x[1], reverse=True)
+        for code, count in sorted_langs:
+            pct = count / total
+            self._log(f"{code:<10} | {count:<12,} | {pct:10.2%}")
+        self._log("-" * 40 + "\n")
+
+        # 2. 姓名重複率
+        unique_count = len(self.stats['unique_names'])
+        repetition_rate = 1.0 - (unique_count / total)
+        
+        self._log("🔍 (B) 姓名豐富度 (Name Uniqueness):")
+        self._log(f"• 總生成數 (Total):      {total:,}")
+        self._log(f"• 唯一姓名數 (Unique):    {unique_count:,}")
+        self._log(f"• 重複率 (Repetition):    {repetition_rate:.2%} (數值越低代表詞庫組合越多)")
+        
+        # 簡單評價
+        status = "極高" if repetition_rate < 0.1 else "中等" if repetition_rate < 0.5 else "偏高"
+        self._log(f"• 詞庫多樣性評價:        {status}")
+        self._log("\n")
+
+    def _get_normal_prob(self, start, end, mean=195, std=10):
+        cdf_end = 0.5 * (1 + math.erf((end - mean) / (std * 2**0.5)))
+        cdf_start = 0.5 * (1 + math.erf((start - mean) / (std * 2**0.5)))
+        return cdf_end - cdf_start
+
+    def _write_height_analysis(self):
+        self._log("📊 [KPI 3.1 A] 身高分佈與極端值監測")
+        self._log("   理論模型: Mean=195, SD=10")
+        self._log("-" * 120)
+        self._log(f"{'Slice (cm)':<12} | {'Actual %':<12} | {'Theory %':<12} | {'Diff %':<12} | Status")
+        self._log("-" * 120)
+        
+        slices = [
+            (160, 169), (170, 179), (180, 189), (190, 199),
+            (200, 209), (210, 219), (220, 229)
+        ]
+        total = self.stats['total_rows']
+        if total == 0: return
+
+        for s_min, s_max in slices:
+            count = sum(self.stats['height_counts'].get(h, 0) for h in range(s_min, s_max + 1))
+            actual_pct = count / total
+            theory_pct = self._get_normal_prob(s_min - 0.5, s_max + 0.5)
+            diff = actual_pct - theory_pct
+            status = "✅" if abs(diff) < 0.015 else "❌"
+            self._log(f"{s_min}-{s_max}cm    | {actual_pct:10.4%} | {theory_pct:10.4%} | {diff:+10.4%} | {status}")
+        
+        self._log("-" * 120)
+        self._log("🔍 極端值逐公分詳細監測 (Per cm Breakdown):")
+        self._log("\n   >>> Low Extreme (160-169 cm)")
+        self._write_height_detail(160, 169)
+        self._log("\n   >>> High Extreme (221-230 cm)")
+        self._write_height_detail(221, 230)
+        self._log("\n")
+
+    def _write_height_detail(self, start, end):
+        self._log(f"   {'Height':<8} | {'Count':<10} | {'Actual %':<10} | {'Theory %':<10} | {'Diff %':<10}")
+        self._log("   " + "-" * 70)
+        total_sub = 0
+        for h in range(start, end + 1):
+            c = self.stats['height_counts'].get(h, 0)
+            total_sub += c
+            act = c / self.stats['total_rows']
+            theory = self._get_normal_prob(h - 0.5, h + 0.5)
+            diff = act - theory
+            self._log(f"   {h} cm   | {c:10,} | {act:9.4%} | {theory:9.4%} | {diff:+.4%}")
+        self._log("   " + "-" * 70)
+        self._log(f"   Total    | {total_sub:10,} | {total_sub/self.stats['total_rows']:9.4%}")
+
+    def _write_position_matrix(self):
+        self._log("📊 [KPI 3.1 B] 位置判定矩陣 (Position Assignment)")
+        labels = ['< 190', '190-199', '200-209', '>= 210']
+        targets = {
+            '< 190': {'PG': 0.60, 'SG': 0.40},
+            '190-199': {'PG': 0.35, 'SG': 0.45, 'SF': 0.20},
+            '200-209': {'PF': 0.50, 'SF': 0.20, 'C': 0.15, 'SG': 0.10, 'PG': 0.05},
+            '>= 210': {'C': 0.45, 'PF': 0.30, 'SG': 0.10, 'SF': 0.10, 'PG': 0.05}
+        }
+        self._log(f"{'Height Bin':<10} | {'Pos':<4} | {'Target %':<10} | {'Actual % (Count)':<22} | {'Diff %':<8} | Check")
+        self._log("-" * 120)
+        for label in labels:
+            row_total = sum(self.stats['pos_matrix'].get((label, p), 0) for p in ['PG', 'SG', 'SF', 'PF', 'C'])
+            if row_total == 0: continue
+            self._log(f"[{label}] (Total: {row_total:,})")
+            t_map = targets.get(label, {})
+            sorted_pos = sorted(t_map.keys(), key=lambda x: t_map[x], reverse=True)
+            for pos in sorted_pos:
+                target = t_map[pos]
+                count = self.stats['pos_matrix'].get((label, pos), 0)
+                actual = count / row_total
+                diff = actual - target
+                check = "✅" if abs(diff) < 0.01 else "❌"
+                self._log(f"{'':<10} | {pos:<4} | {target:9.4%} | {actual:9.4%} ({count})   | {diff:+.4%} | {check}")
+            self._log("-" * 120)
+        self._log("\n")
+
+    def _write_rating_matrix(self):
+        self._log("📊 [KPI 3.1 C] 身高級距內各等級平均能力值 (Average Rating by 10cm)")
+        labels = ['< 170', '170-179', '180-189', '190-199', '200-209', '210-219', '>= 220']
+        grades = ['G', 'C', 'B', 'A', 'S', 'SS', 'SSR']
+        
+        header = f"{'Height Bin':<10} | " + " | ".join([f"{g:^8}" for g in grades])
+        self._log("-" * len(header))
+        self._log(header)
+        self._log("-" * len(header))
+        
+        for label in labels:
+            vals = []
+            for g in grades:
+                key = (label, g)
+                data = self.stats['rating_matrix'].get(key, {'sum': 0, 'count': 0})
+                if data['count'] > 0:
+                    avg = data['sum'] / data['count']
+                    vals.append(f"{avg:^8.1f}")
+                else:
+                    vals.append(f"{'-':^8}")
+            self._log(f"{label:<10} | " + " | ".join(vals))
+        self._log("-" * len(header) + "\n")
+
+    def _write_grade_distribution(self):
+        self._log("📊 [KPI 3.2] 等級機率分佈 (Grade Drop Rates)")
+        targets = {
+            'G':   {'target': 0.280, 'tol': 0.010},
+            'C':   {'target': 0.260, 'tol': 0.010},
+            'B':   {'target': 0.220, 'tol': 0.010},
+            'A':   {'target': 0.140, 'tol': 0.010},
+            'S':   {'target': 0.070, 'tol': 0.005},
+            'SS':  {'target': 0.025, 'tol': 0.005},
+            'SSR': {'target': 0.005, 'tol': 0.001}
+        }
+        self._log(f"{'Grade':<6} | {'Target':<8} | {'Actual':<10} | {'Diff':<10} | {'Tolerance':<10} | Status")
+        self._log("-" * 80)
+        total = self.stats['total_rows']
+        for g in ['G', 'C', 'B', 'A', 'S', 'SS', 'SSR']:
+            count = self.stats['grade_counts'].get(g, 0)
+            actual = count / total if total > 0 else 0
+            t_data = targets[g]
+            target = t_data['target']
+            tol = t_data['tol']
+            diff = actual - target
+            status = "✅" if abs(diff) <= tol else f"❌"
+            self._log(f"{g:<6} | {target:8.1%} | {actual:10.4%} | {diff:+.4%} | ±{tol:.1%}   | {status}")
+        self._log("-" * 80 + "\n")
+
+    def _write_generic_histograms(self, title, data_source, keys, target_cols):
+        self._log(title)
+        self._log("-" * 120)
+        self._log(f"{'Stat Name':<12} | {'1-10':<12} | {'11-40':<12} | {'41-60':<12} | {'61-89':<12} | {'90-99':<12}")
+        
+        for key in keys:
+            if key not in data_source: continue
+            self._log(f"\n[Group: {key}]")
+            self._log("-" * 80)
+            
+            group_data = data_source[key]
+            for col in target_cols:
+                if col not in group_data: continue
+                counts = group_data[col]
+                total = counts.sum()
+                if total == 0: continue
+                pcts = counts / total
+                cn_name = FIELD_MAP.get(col, col)
+                row = f"{cn_name:<12} | " + " | ".join([f"{p:10.4%}" for p in pcts])
+                self._log(row)
+        self._log("\n")
+
+    def _write_untrainable_analysis(self):
+        self._log("📊 [KPI 3.3] 天賦生成詳細驗證 (Untrainable Stats)")
+        self._log("-" * 120)
+        
+        self._log("🔍 (A) 總分區間合規性 (Total Sum Check):")
+        self._log(f"{'Grade':<6} | {'Spec Range':<15} | {'Actual Range':<15} | Status")
+        specs = {
+            'G': (10, 400), 'C': (399, 600), 'B': (599, 700),
+            'A': (699, 800), 'S': (799, 900), 'SS': (900, 950), 'SSR': (951, 990)
+        }
+        for g in ['G', 'C', 'B', 'A', 'S', 'SS', 'SSR']:
+            if g not in self.stats['untrainable_sum_ranges']: continue
+            data = self.stats['untrainable_sum_ranges'][g]
+            spec = specs.get(g, (0,0))
+            status = "✅"
+            if data['min'] < spec[0] or data['max'] > spec[1]:
+                status = f"❌ (Out: {data['min']}~{data['max']})"
+            self._log(f"{g:<6} | {spec[0]}-{spec[1]:<10} | {data['min']}-{data['max']:<10} | {status}")
+        self._log("\n")
+
+        cols = [
+            'physical_stamina', 'physical_strength', 'physical_speed', 'physical_jumping', 'physical_health',
+            'offense_touch', 'offense_release', 'mental_off_iq', 'mental_def_iq', 'mental_luck'
+        ]
+        self._write_generic_histograms(
+            "🔍 (B) 天賦屬性分佈 (Untrainable Distribution by Grade)",
+            self.stats['stat_histograms_by_grade'],
+            ['SSR', 'SS', 'S', 'A', 'B', 'C', 'G'],
+            cols
+        )
+
+    def _write_trainable_analysis(self):
+        self._log("📊 [KPI 3.4] 技術生成驗證 (Trainable Stats)")
+        self._log("-" * 120)
+        
+        self._log("🔍 (A) 總分切片分佈 (Total Score Slices):")
+        slices = [f"{i}-{i+99}" for i in range(0, 900, 100)]
+        header = f"{'Grade':<6} | " + " | ".join([f"{s:^12}" for s in slices])
+        self._log(header)
+        self._log("-" * len(header))
+        for g in ['G', 'C', 'B', 'A', 'S', 'SS', 'SSR']:
+            if g not in self.stats['trainable_slices']: continue
+            row_data = self.stats['trainable_slices'][g]
+            g_total = sum(row_data.values())
+            vals = []
+            for i in range(len(slices)):
+                c = row_data.get(i, 0)
+                if c == 0: vals.append(f"{'0.00%':^12}")
+                else:
+                    pct = c / g_total
+                    if pct < 0.0001: vals.append(f"{pct:.4%} (n={c})")
+                    else: vals.append(f"{pct:^12.4%}")
+            self._log(f"{g:<6} | " + " | ".join(vals))
+        self._log("\n")
+        
+        self._log("🔍 (B) 極值監測 (Extreme Values):")
+        self._log(f"{'Grade':<6} | {'Max Val':<10} | {'Trash (<100)':<15}")
+        self._log("-" * 60)
+        for g in ['G', 'C', 'B', 'A', 'S', 'SS', 'SSR']:
+            if g in self.stats['trainable_caps']:
+                d = self.stats['trainable_caps'][g]
+                g_total = self.stats['grade_counts'].get(g, 1)
+                trash_pct = d['trash'] / g_total
+                self._log(f"{g:<6} | {d['max']:<10} | {trash_pct:.4%} (n={d['trash']})")
+        self._log("\n")
+
+        cols = [
+            'offense_accuracy', 'offense_range', 'offense_passing', 'offense_dribble', 'offense_handle', 'offense_move',
+            'defense_rebound', 'defense_boxout', 'defense_contest', 'defense_disrupt'
+        ]
+        self._write_generic_histograms(
+            "🔍 (C) 技術屬性分佈 (Trainable Distribution by Grade)",
+            self.stats['stat_histograms_by_grade'],
+            ['SSR', 'SS', 'S', 'A', 'B', 'C', 'G'],
+            cols
+        )
+        
+        self._write_generic_histograms(
+            "🔍 (D) 技術屬性分佈 (Trainable Distribution by Position)",
+            self.stats['stat_histograms_by_pos'],
+            ['PG', 'SG', 'SF', 'PF', 'C'],
+            cols
+        )
+
+    def _write_age_analysis(self):
+        self._log("📊 [KPI 3.5] 年齡分佈驗證 (Age Distribution)")
+        self._log("-" * 120)
+        targets = {
+            'SSR': [18], 'SS': [18, 19], 'S': [18, 19, 20],
+            'A': [18, 19, 20, 21], 'B': range(18, 23), 'C': range(18, 24), 'G': range(18, 25)
+        }
+        for g, allowed_ages in targets.items():
+            if g not in self.stats['age_dist']: continue
+            dist = self.stats['age_dist'][g]
+            total = sum(dist.values())
+            expected_pct = 1.0 / len(allowed_ages)
+            self._log(f"{g:<4} | Target: {list(allowed_ages)}")
+            for age in sorted(dist.keys()):
+                pct = dist[age] / total
+                diff = pct - expected_pct
+                status = "✅" if abs(diff) < 0.03 else "⚠️"
+                self._log(f"       ↳ {age}歲: {pct:.4%} (Diff: {diff:+.4%}) {status}")
+            self._log("-" * 60)
+        self._log("\n")
+
+    def _write_violations(self):
+        self._log("🚨 [KPI 3.6] 違規與異常檢測 (Violation Check)")
+        self._log("   目標: 確保沒有任何一筆資料違反硬性規則。")
+        self._log("-" * 120)
+        
+        # 3.6.A Basic Violations
+        if not self.stats['violations']:
+            self._log("✅ [單項屬性邊界] 所有屬性皆在 1-99 範圍內。")
+        else:
+            unique_v = list(set(self.stats['violations']))
+            for v in unique_v[:20]:
+                self._log(f"❌ {v}")
+            if len(unique_v) > 20:
+                self._log(f"... (還有 {len(unique_v)-20} 項錯誤)")
+                
+        # 3.6.B Small Player Monitor by Grade
+        self._log("\n🔍 [矮個子監控] 身高 <= 189cm 球員能力值檢測 (依等級):")
+        self._log("   說明: 檢查是否因身高紅利導致突破該等級的 Base Cap。")
+        
+        self._log(f"   {'Grade':<6} | {'Total Small (n)':<16} | {'Max Val':<8} | {'Base Cap':<8} | {'Overflow (n)':<12} | {'Overflow %':<10} | Check")
+        self._log("   " + "-" * 100)
+        
+        # Sort by Grade Priority
+        for g in ['SSR', 'SS', 'S', 'A', 'B', 'C', 'G']:
+            if g not in self.stats['small_player_stats']:
+                self._log(f"   {g:<6} | {'0':<16} | {'-':<8} | {BASE_CAPS.get(g,0):<8} | {'-':<12} | {'-':<10} | -")
+                continue
+                
+            data = self.stats['small_player_stats'][g]
+            max_val = data['max']
+            count = data['count']
+            overflow_count = data['overflow_count']
+            base_cap = BASE_CAPS.get(g, 0)
+            
+            overflow_pct = overflow_count / count if count > 0 else 0
+            
+            diff = max_val - base_cap
+            status = "✅"
+            if diff > 50: status = "⚠️ (High)"
+            if diff < 0: status = "✅ (Under)"
+            
+            self._log(f"   {g:<6} | {count:<16,} | {max_val:<8} | {base_cap:<8} | {overflow_count:<12,} | {overflow_pct:<10.2%} | {status}")
+            
+        self._log("-" * 120)
+
+============================================================
+
+File: tests\player_generator_big_data\check_data_integrity.py
+------------------------------------------------------------
+# tests/player_generator_big_data/check_data_integrity.py
+import os
+import sys
+import glob
+import pyarrow.parquet as pq
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
+
+# ==========================================
+# 設定
+# ==========================================
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+
+def check_file(filepath):
+    """
+    嘗試讀取單個 Parquet 檔案的 Schema 和第一批數據
+    以驗證檔案是否損壞或字典編碼是否有誤
+    """
+    try:
+        # 僅讀取 Metadata 與第一行數據，速度較快
+        parquet_file = pq.ParquetFile(filepath)
+        _ = parquet_file.metadata
+        _ = parquet_file.read_row_group(0)
+        return None  # 成功
+    except Exception as e:
+        return (filepath, str(e))
+
+def main():
+    print(f"Checking data integrity in: {DATA_DIR}")
+    files = glob.glob(os.path.join(DATA_DIR, "*.parquet"))
+    
+    if not files:
+        print("No parquet files found.")
+        return
+
+    print(f"Found {len(files)} files. Starting verification...")
+    
+    bad_files = []
+    
+    # 使用多進程加速檢查
+    with ProcessPoolExecutor(max_workers=20) as executor:
+        results = list(tqdm(executor.map(check_file, files), total=len(files), unit="file"))
+    
+    for res in results:
+        if res is not None:
+            bad_files.append(res)
+    
+    print("-" * 60)
+    if bad_files:
+        print(f"❌ Found {len(bad_files)} corrupted files:")
+        for fpath, err in bad_files:
+            print(f"File: {os.path.basename(fpath)}")
+            print(f"Error: {err}")
+            # 選項：自動刪除壞檔
+            # os.remove(fpath)
+            # print("Deleted.")
+        print("\n建議：請手動刪除上述損壞檔案後，再執行分析報告。")
+    else:
+        print("✅ All files passed integrity check.")
+    print("-" * 60)
+
+if __name__ == "__main__":
+    main()
+
+============================================================
+
+File: tests\player_generator_big_data\run_test.py
+------------------------------------------------------------
+# tests/player_generator_big_data/run_test.py
+import os
+import sys
+import time
+import yaml
+import shutil
+import multiprocessing
+import random
+import psutil
+import json
+from datetime import datetime, timedelta
+
+# ==========================================
+# 環境設定
+# ==========================================
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '../../'))
+sys.path.append(project_root)
+
+# 延遲匯入 pandas，避免在主進程初始化時造成底層衝突
+pd = None 
+
+try:
+    from app import create_app
+    from app.services.player_generator import PlayerGenerator
+    import config
+    from analyzer import BigDataAnalyzer
+except ImportError as e:
+    print(f"[Error] 無法匯入專案模組，請檢查路徑。\n{e}")
+    sys.exit(1)
+
+# ==========================================
+# 工具函式
+# ==========================================
+def load_config():
+    path = os.path.join(current_dir, 'test_config.yaml')
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+def get_system_stats():
+    mem = psutil.virtual_memory()
+    return psutil.cpu_percent(), mem.percent, mem.used / (1024**3)
+
+def get_latest_run_dir(base_dir):
+    """搜尋 base_dir 下最新的時間戳資料夾"""
+    if not os.path.exists(base_dir):
+        return None
+    
+    subdirs = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))]
+    if not subdirs:
+        return None
+    
+    # 假設資料夾名稱格式為 YYYYMMDD_HHMM，排序後最後一個即為最新
+    subdirs.sort()
+    return os.path.join(base_dir, subdirs[-1])
+
+class ResourceMonitor:
+    """用於追蹤整個執行過程中的資源峰值"""
+    def __init__(self):
+        self.peak_cpu = 0.0
+        self.peak_ram_gb = 0.0
+        self.start_time = None
+        self.end_time = None
+        self.total_rows = 0
+
+    def update(self):
+        cpu, _, mem_gb = get_system_stats()
+        if cpu > self.peak_cpu: self.peak_cpu = cpu
+        if mem_gb > self.peak_ram_gb: self.peak_ram_gb = mem_gb
+        return cpu, mem_gb
+
+def print_progress(current, total, start_time, monitor):
+    elapsed = time.time() - start_time
+    rate = current / elapsed if elapsed > 0 else 0
+    eta = (total - current) / rate if rate > 0 else 0
+    
+    cpu, mem_gb = monitor.update()
+    
+    bar_len = 30
+    filled = int(bar_len * current / total)
+    bar = '█' * filled + '░' * (bar_len - filled)
+    
+    sys.stdout.write(
+        f"\r[{bar}] {current/total*100:5.1f}% | "
+        f"Cnt: {current/1000:.0f}k | "
+        f"Spd: {rate:.0f}/s | "
+        f"CPU: {cpu:4.0f}% | "
+        f"RAM: {mem_gb:4.1f}G | "
+        f"ETA: {int(eta//60)}:{int(eta%60):02d}   "
+    )
+    sys.stdout.flush()
+
+# ==========================================
+# Worker (多進程生成任務)
+# ==========================================
+def worker_task(batch_size):
+    """單一 Worker 的生成任務"""
+    # 強制重置隨機種子
+    random.seed(os.getpid() + time.time())
+    
+    app = create_app(config.Config)
+    data = []
+    
+    with app.app_context():
+        PlayerGenerator.initialize_class()
+        try:
+            for _ in range(batch_size):
+                payload = PlayerGenerator.generate_payload()
+                data.append(PlayerGenerator.to_flat_dict(payload))
+        except Exception as e:
+            print(f"[Worker Error PID {os.getpid()}]: {e}")
+            return []
+    return data
+
+# ==========================================
+# 流程控制
+# ==========================================
+def run_dry_run(conf):
+    global pd
+    import pandas as pd
+    
+    count = conf['execution']['dry_run_count']
+    batch_size = conf['execution']['batch_size_per_task']
+    workers = conf['execution']['max_workers']
+    
+    print(f"\n=== [步驟 1] 試跑 (Dry Run: {count:,} 筆) ===")
+    print(f"Worker 數: {workers}")
+    
+    start_time = time.time()
+    monitor = ResourceMonitor()
+    
+    tasks = [batch_size] * (count // batch_size)
+    if count % batch_size != 0: tasks.append(count % batch_size)
+    
+    results = []
+    ctx = multiprocessing.get_context('spawn')
+    
+    with ctx.Pool(processes=workers) as pool:
+        for res in pool.imap_unordered(worker_task, tasks):
+            results.extend(res)
+            print_progress(len(results), count, start_time, monitor)
+            
+    duration = time.time() - start_time
+    print(f"\n\n試跑完成！耗時: {duration:.2f} 秒 (速度: {count/duration:.0f} 筆/秒)")
+    
+    print("-" * 60)
+    print("樣本數據預覽:")
+    df = pd.DataFrame(results[:3])
+    print(df[['name', 'grade', 'position', 'height', 'rating', 'salary']].to_string(index=False))
+    print("-" * 60)
+    
+    return count / duration
+
+def execute_production_run(target_count, speed, conf):
+    global pd
+    if pd is None: import pandas as pd
+    
+    print(f"\n=== [步驟 3] 正式執行 (Target: {target_count:,} 筆) ===")
+    
+    # 1. 建立時間戳記資料夾
+    run_id = datetime.now().strftime('%Y%m%d_%H%M')
+    base_data_dir = os.path.join(current_dir, conf['output']['data_dir'])
+    current_run_dir = os.path.join(base_data_dir, run_id)
+    
+    os.makedirs(current_run_dir, exist_ok=True)
+    
+    batch_size = conf['execution']['batch_size_per_task']
+    workers = conf['execution']['max_workers']
+    
+    tasks = [batch_size] * (target_count // batch_size)
+    if target_count % batch_size != 0: tasks.append(target_count % batch_size)
+    
+    print(f"輸出目錄: {current_run_dir}")
+    
+    monitor = ResourceMonitor()
+    monitor.start_time = datetime.now()
+    start_time = time.time()
+    
+    processed = 0
+    file_idx = 0
+    
+    ctx = multiprocessing.get_context('spawn')
+    
+    with ctx.Pool(processes=workers) as pool:
+        for batch_data in pool.imap_unordered(worker_task, tasks):
+            if not batch_data: continue
+            
+            df = pd.DataFrame(batch_data)
+            fname = f"part_{file_idx:05d}.parquet"
+            fpath = os.path.join(current_run_dir, fname)
+            
+            df.to_parquet(fpath, engine='pyarrow', compression=conf['output']['compression'])
+            
+            processed += len(batch_data)
+            file_idx += 1
+            print_progress(processed, target_count, start_time, monitor)
+            
+    monitor.end_time = datetime.now()
+    monitor.total_rows = processed
+    total_time = time.time() - start_time
+    
+    print(f"\n\n執行完成！總耗時: {total_time:.2f} 秒")
+    
+    # 儲存執行摘要 (Metadata) 供 Analyzer 使用
+    meta_path = os.path.join(current_run_dir, "execution_meta.json")
+    meta_data = {
+        "run_id": run_id,
+        "start_time": monitor.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_time": monitor.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "duration_seconds": total_time,
+        "total_rows": processed,
+        "peak_cpu": monitor.peak_cpu,
+        "peak_ram_gb": monitor.peak_ram_gb,
+        "avg_speed": processed / total_time if total_time > 0 else 0
+    }
+    with open(meta_path, 'w') as f:
+        json.dump(meta_data, f)
+        
+    return current_run_dir
+
+def generate_report(data_dir, conf):
+    print(f"\n=== [步驟 4] 數據分析與報告生成 ===")
+    print(f"分析目標目錄: {data_dir}")
+    
+    # 取得 Run ID (從資料夾名稱)
+    run_id = os.path.basename(os.path.normpath(data_dir))
+    
+    # 建立對應的報告目錄
+    base_report_dir = os.path.join(current_dir, conf['output']['report_dir'])
+    current_report_dir = os.path.join(base_report_dir, run_id)
+    os.makedirs(current_report_dir, exist_ok=True)
+    
+    analyzer = BigDataAnalyzer(conf, data_dir)
+    report_content = analyzer.run_analysis()
+    
+    report_file = os.path.join(current_report_dir, f"Validation_Report.md")
+    with open(report_file, 'w', encoding='utf-8') as f:
+        f.write(report_content)
+        
+    print(f"\n報告已生成: {report_file}")
+    print("-" * 60)
+
+if __name__ == "__main__":
+    try:
+        from scripts.terminal import clear_terminal
+        clear_terminal()
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    multiprocessing.freeze_support()
+    os.environ['PYTHON_JIT'] = '0'
+    
+    conf = load_config()
+    
+    print("\n==========================================")
+    print("   ASBL Big Data Generator & Analyzer     ")
+    print("==========================================")
+    print("1. 完整流程 (試跑 -> 生成 -> 報告)")
+    print("2. 僅生成報告 (Report Only - 分析最新結果)")
+    print("q. 離開")
+    
+    mode = input("\n請選擇模式 [1/2]: ").strip().lower()
+    
+    if mode == 'q':
+        sys.exit(0)
+        
+    elif mode == '2':
+        base_data_dir = os.path.join(current_dir, conf['output']['data_dir'])
+        latest_dir = get_latest_run_dir(base_data_dir)
+        
+        if not latest_dir:
+            print(f"\n[Error] 在 {base_data_dir} 找不到任何測試數據資料夾。")
+            sys.exit(1)
+            
+        print(f"\n[System] 偵測到最新測試數據: {latest_dir}")
+        generate_report(latest_dir, conf)
+        
+    else:
+        speed = run_dry_run(conf)
+        while True:
+            try:
+                val = input("\n請輸入正式執行的總筆數 (例如 1000000) [輸入 q 離開]: ")
+                if val.lower() == 'q': sys.exit(0)
+                target_count = int(val)
+                est_sec = target_count / speed
+                print(f"預估耗時: {est_sec:.0f} 秒 ({est_sec/60:.1f} 分)")
+                if input("確認執行? (y/n): ").lower() == 'y': break
+            except ValueError: pass
+        
+        data_dir = execute_production_run(target_count, speed, conf)
+        generate_report(data_dir, conf)
+
+============================================================
+
+File: tests\player_generator_big_data\test_config.yaml
+------------------------------------------------------------
+# tests/player_generator_big_data/test_config.yaml
+
+execution:
+  # 試跑次數 (用於計算預估時間)
+  dry_run_count: 300000
+  
+  # 並行運算設定
+  # i9-14900K (24 Cores / 32 Threads)
+  # 建議保留一些核心給 OS 與背景作業，設為 20-24 效果最佳
+  max_workers: 24
+  
+  # 切片大小
+  # 每個 Worker 每次回傳的筆數。
+  # 128GB RAM 可以設大一點 (50000-100000) 以減少 I/O 頻率
+  batch_size_per_task: 100000
+
+output:
+  # 資料存放目錄 (相對於 tests/player_generator_big_data/)
+  data_dir: "data"
+  logs_dir: "logs"
+  report_dir: "reports"
+  
+  # 壓縮格式 (snappy 速度最快，適合大數據暫存)
+  compression: "snappy"
+
+validation:
+  # [新增需求] 等級機率與容許誤差
+  grade_distribution:
+    G:   { target: 0.280, tolerance: 0.010 }
+    C:   { target: 0.260, tolerance: 0.010 }
+    B:   { target: 0.220, tolerance: 0.010 }
+    A:   { target: 0.140, tolerance: 0.010 }
+    S:   { target: 0.070, tolerance: 0.005 }
+    SS:  { target: 0.025, tolerance: 0.005 }
+    SSR: { target: 0.005, tolerance: 0.001 }
+
+  # 身高分佈理論值 (用於報告比較)
+  height_distribution:
+    mean: 195
+    std_dev: 10
+
+============================================================
+
+File: tests\team_bigdata_test\manual_merge.py
+------------------------------------------------------------
+# tests/team_bigdata_test/manual_merge.py
+# Description: 救援崩潰數據 V2 - 修正字串解析錯誤 (Fix String/List parsing issue)
+
+import os
+import sys
+import pandas as pd
+import numpy as np
+import ast
+from datetime import datetime
+from collections import Counter
+import glob
+
+# ==========================================
+# 設定區
+# ==========================================
+TARGET_DIR = r"D:\ASBL-Basketball-Manager\tests\team_bigdata_test\data\20251229_202911"
+
+def parse_names(val):
+    """
+    嘗試將各種奇形怪狀的資料轉回 List
+    """
+    if isinstance(val, list):
+        return val
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, str):
+        val = val.strip()
+        if val.startswith('[') and val.endswith(']'):
+            try:
+                # 將字串 "['A', 'B']" 轉回 list ['A', 'B']
+                return ast.literal_eval(val)
+            except:
+                pass
+        return [val] # 真的只是單一字串
+    return []
+
+def main():
+    print(f"正在救援目錄: {TARGET_DIR}")
+    
+    temp_dir = os.path.join(TARGET_DIR, "temp_parts")
+    final_parquet_path = os.path.join(TARGET_DIR, 'teams_data.parquet')
+    report_file = os.path.join(TARGET_DIR, "report_rescued_v2.md")
+
+    if not os.path.exists(temp_dir):
+        print(f"錯誤: 找不到暫存目錄 {temp_dir}")
+        return
+
+    # 1. 讀取並合併數據
+    print("正在讀取所有分塊檔案...")
+    try:
+        files = glob.glob(os.path.join(temp_dir, "*.parquet"))
+        if not files:
+            print("沒有檔案可以合併。")
+            return
+
+        df_all = pd.read_parquet(temp_dir)
+        print(f"合併成功！總資料筆數: {len(df_all):,}")
+        
+        # 存檔
+        df_all.to_parquet(final_parquet_path, engine='pyarrow')
+        print(f"已儲存合併檔案至: {final_parquet_path}")
+        
+    except Exception as e:
+        print(f"合併失敗: {e}")
+        return
+
+    # 2. 生成報告
+    print("正在重新計算統計數據並生成報告...")
+    
+    try:
+        scores = df_all['weighted_score']
+        times = df_all['generation_time']
+        
+        avg_score = scores.mean()
+        stdev_score = scores.std()
+        min_score = scores.min()
+        max_score = scores.max()
+        avg_time = times.mean()
+        
+        print("正在分析名字重複率 (正在解析字串，請稍候)...")
+        global_name_counter = Counter()
+        
+        # 使用 apply 進行批次處理，比 for loop 快一點
+        # 但為了保險起見，我們用明確的迭代並加入進度顯示
+        all_names = []
+        total_rows = len(df_all)
+        
+        for idx, row_names in enumerate(df_all['player_names']):
+            parsed_list = parse_names(row_names)
+            all_names.extend(parsed_list)
+            
+            if idx % 50000 == 0:
+                print(f"已處理 {idx}/{total_rows} 隊...")
+        
+        global_name_counter.update(all_names)
+        
+        total_players = sum(global_name_counter.values())
+        unique_names = len(global_name_counter)
+        duplicate_ratio = ((total_players - unique_names) / total_players) * 100 if total_players > 0 else 0
+        top_duplicates = global_name_counter.most_common(20) # 看前 20 名
+
+        with open(report_file, 'w', encoding='utf-8') as f:
+            f.write(f"# ASBL 隊伍生成大數據壓力測試報告 (救援修正版)\n")
+            f.write(f"**救援時間**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"**資料路徑**: `{TARGET_DIR}`\n")
+            f.write(f"**救援資料筆數**: {len(df_all):,}\n")
+            f.write(f"**總球員人次**: {total_players:,}\n\n")
+            
+            f.write(f"## 1. 統計數據\n")
+            f.write(f"- **平均加權分**: {avg_score:.4f}\n")
+            f.write(f"- **標準差**: {stdev_score:.4f}\n")
+            f.write(f"- **最小/最大分**: {min_score:.4f} / {max_score:.4f}\n")
+            f.write(f"- **平均生成時間**: {avg_time:.6f} 秒/隊\n")
+            f.write(f"- **名字重複率**: {duplicate_ratio:.4f}%\n")
+            
+            f.write(f"## 2. 前 20 名重複名字\n")
+            f.write(f"| 排名 | 名字 | 次數 |\n|---|---|---|\n")
+            for i, (name, count) in enumerate(top_duplicates, 1):
+                f.write(f"| {i} | {name} | {count} |\n")
+                
+        print(f"修正版報告已生成於：{report_file}")
+        print("這次應該可以看到真實的重複率了！")
+        
+    except Exception as e:
+        print(f"報告生成失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == '__main__':
+    main()
+
+============================================================
+
+File: tests\team_bigdata_test\run_simulation.py
+------------------------------------------------------------
+# tests/team_bigdata_test/run_simulation.py
+# Project: ASBL (Advanced Simulation Basketball League)
+# Author: System Architect
+# Date: 2026-01-26
+# Description: 1000萬支隊伍生成壓力測試 (修正 Python 3.13 多進程崩潰版)
+
+import os
+import sys
+
+# ==========================================
+# [CRITICAL FIX] 環境變數設定
+# 必須在匯入 numpy/pandas 之前設定，強制數值運算庫在每個子進程中只使用單一執行緒。
+# 這能避免 30 個 workers x N 核心導致的執行緒爆炸 (Thread Oversubscription) 和解釋器崩潰。
+# ==========================================
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
+import time
+import shutil
+import logging
+import multiprocessing
+import psutil
+import traceback
+import threading
+from collections import Counter
+from datetime import datetime
+from typing import Dict, List, Any
+
+# 引入 Pandas 用於數據儲存
+try:
+    import pandas as pd
+except ImportError:
+    print("錯誤: 缺少 pandas 套件。請執行 pip install pandas pyarrow")
+    sys.exit(1)
+
+# 假設專案根目錄在兩層之上
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+
+try:
+    from app.services.team_creator import TeamCreator
+    from app.utils.game_config_loader import GameConfigLoader
+    from app import create_app 
+except ImportError as e:
+    print(f"嚴重錯誤: 無法匯入專案模組。 {e}")
+    sys.exit(1)
+
+# ==========================================
+# 配置常數
+# ==========================================
+TARGET_TEAMS = 10000     # 測試總數量
+BATCH_SIZE = 1000          # 批次大小
+# [建議] Windows 下建議不要超過 CPU 核心數，這裡動態調整
+MAX_WORKERS = min(30, os.cpu_count() or 4) 
+SAVE_THRESHOLD = 1000     # 每累積多少筆資料就寫入硬碟一次
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_ROOT = os.path.join(BASE_DIR, 'data')
+CONFIG_PATH = os.path.abspath(os.path.join(BASE_DIR, '../../config/game_config.yaml'))
+
+STAT_WEIGHTS = {
+    'talent_offiq': 1.08, 'talent_defiq': 1.07, 'ath_speed': 1.07,
+    'off_move': 1.05, 'ath_strength': 1.05, 'ath_jump': 1.05,
+    'off_pass': 1.04, 'def_contest': 1.04, 'off_handle': 1.04,
+    'off_dribble': 1.04, 'def_disrupt': 1.04, 'shot_touch': 1.03,
+    'shot_release': 1.03, 'def_boxout': 1.03, 'shot_range': 1.02,
+    'def_rebound': 1.02, 'shot_accuracy': 1.02,
+}
+
+# ==========================================
+# 全域變數 (Worker 內部使用)
+# ==========================================
+shared_counter = None # 用於跨進程計數
+
+# ==========================================
+# 工具類別 (Static Methods Pattern)
+# ==========================================
+class SimulationUtils:
+    
+    @staticmethod
+    def setup_environment():
+        """建立帶有時間戳記的獨立執行目錄與暫存目錄"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join(DATA_ROOT, timestamp)
+        temp_dir = os.path.join(run_dir, "temp_parts")
+        
+        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        log_file = os.path.join(run_dir, f"simulation.log")
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file, encoding='utf-8'),
+            ]
+        )
+        
+        if os.path.exists(CONFIG_PATH):
+            shutil.copy(CONFIG_PATH, os.path.join(run_dir, "game_config.yaml"))
+        
+        return run_dir, temp_dir
+
+    @staticmethod
+    def calculate_team_weighted_score(roster: List[Dict[str, Any]]) -> float:
+        total_score = 0.0
+        for player in roster:
+            stats = player.get('raw_stats', {})
+            if not stats and 'detailed_stats' in player:
+                stats = {}
+                for cat in player['detailed_stats'].values():
+                    stats.update(cat)
+            
+            player_score = 0.0
+            for attr, weight in STAT_WEIGHTS.items():
+                val = stats.get(attr, 0)
+                player_score += val * weight
+            total_score += player_score
+        return total_score
+
+    @staticmethod
+    def save_chunk(data: List[Dict], temp_dir: str, chunk_id: int):
+        """將目前的緩衝區資料寫入暫存 Parquet 檔"""
+        if not data:
+            return
+        try:
+            df = pd.DataFrame(data)
+            file_path = os.path.join(temp_dir, f"part_{chunk_id:05d}.parquet")
+            df.to_parquet(file_path, engine='pyarrow')
+            logging.info(f"已寫入分塊檔案: {os.path.basename(file_path)} ({len(data)} 筆)")
+        except Exception as e:
+            logging.error(f"寫入分塊檔案失敗: {e}")
+
+# ==========================================
+# Worker 邏輯
+# ==========================================
+
+def init_worker(counter_val):
+    """Worker 初始化，接收共享計數器"""
+    global shared_counter
+    shared_counter = counter_val 
+    
+    try:
+        # 錯開啟動時間，減少同時讀取檔案的 IO 競爭
+        time.sleep(os.getpid() % 5 * 0.1) 
+        
+        app = create_app()
+        app.app_context().push()
+        GameConfigLoader.load()
+        
+        from app.services.player_generator import PlayerGenerator
+        PlayerGenerator.initialize_class()
+    except Exception as e:
+        # 使用 logging 而不是 print，避免 stdout 競爭
+        logging.error(f"[Worker Error] Init failed (PID {os.getpid()}): {e}")
+
+def simulation_task(batch_count: int) -> Dict[str, Any]:
+    """單一 Worker 的執行任務"""
+    local_records = [] 
+    local_name_counter = Counter()
+    error_count = 0
+    
+    for _ in range(batch_count):
+        start_time = time.perf_counter()
+        try:
+            # 增加遞迴深度限制保護，雖然 Python 預設有，但明確設定可避免某些 C-stack overflow
+            # sys.setrecursionlimit(2000) 
+            
+            roster = TeamCreator.create_valid_roster(max_attempts=100000)
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            
+            # 更新共享計數器
+            if shared_counter:
+                with shared_counter.get_lock():
+                    shared_counter.value += 1
+
+            w_score = SimulationUtils.calculate_team_weighted_score(roster)
+            names = [p['name'] for p in roster]
+            
+            local_records.append({
+                'weighted_score': w_score,
+                'generation_time': duration,
+                'player_names': names, 
+                'roster_size': len(roster)
+            })
+            
+            local_name_counter.update(names)
+            
+        except RecursionError:
+            logging.warning(f"生成失敗 (RecursionError) PID {os.getpid()}")
+            error_count += 1
+        except Exception as e:
+            error_count += 1
+            # 降低錯誤日誌頻率，避免磁碟 I/O 導致更嚴重的延遲
+            if error_count <= 5: 
+                logging.warning(f"生成失敗 (PID {os.getpid()}): {e}")
+            continue
+            
+    return {
+        'records': local_records,
+        'names': local_name_counter,
+        'errors': error_count
+    }
+
+def monitor_progress(counter, total, start_time, stop_event):
+    """獨立的監控執行緒，負責更新 UI"""
+    while not stop_event.is_set():
+        current = counter.value
+        if current > 0:
+            elapsed = time.time() - start_time
+            rate = current / elapsed if elapsed > 0 else 0
+            
+            try:
+                proc = psutil.Process(os.getpid())
+                mem = proc.memory_info().rss / 1024 / 1024
+            except:
+                mem = 0
+            
+            sys.stdout.write(
+                f"\r進度: {current:,}/{total:,} ({current/total:.1%}) | "
+                f"速度: {rate:.1f} 隊/秒 | "
+                f"RAM: {mem:.0f} MB"
+            )
+            sys.stdout.flush()
+        
+        if current >= total:
+            break
+            
+        time.sleep(0.5) # 降低更新頻率以減少資源消耗
+
+# ==========================================
+# 主程式
+# ==========================================
+
+def main():
+    # 確保 Windows 下 multiprocessing 正常運作
+    multiprocessing.freeze_support()
+    
+    run_dir, temp_dir = SimulationUtils.setup_environment()
+    print(f"開始執行 {TARGET_TEAMS:,} 支隊伍的模擬生成")
+    print(f"輸出目錄: {run_dir}")
+    print(f"設定: Batch={BATCH_SIZE}, Workers={MAX_WORKERS}")
+    print(f"Python 版本: {sys.version.split()[0]}")
+    print("-" * 60)
+
+    total_batches = TARGET_TEAMS // BATCH_SIZE
+    tasks = [BATCH_SIZE] * total_batches
+    if TARGET_TEAMS % BATCH_SIZE > 0:
+        tasks.append(TARGET_TEAMS % BATCH_SIZE)
+
+    global_counter = multiprocessing.Value('i', 0)
+    stop_monitor = threading.Event()
+    start_global = time.time()
+    
+    monitor_thread = threading.Thread(
+        target=monitor_progress, 
+        args=(global_counter, TARGET_TEAMS, start_global, stop_monitor)
+    )
+    monitor_thread.start()
+    
+    buffer_records = []
+    global_name_counter = Counter()
+    total_errors = 0
+    chunk_counter = 0
+    
+    logging.info("正在啟動 Worker Pool...")
+    
+    try:
+        # 使用 spawn (Windows 預設)
+        ctx = multiprocessing.get_context('spawn')
+        with ctx.Pool(processes=MAX_WORKERS, initializer=init_worker, initargs=(global_counter,)) as pool:
+            results = pool.imap_unordered(simulation_task, tasks)
+            
+            for res in results:
+                buffer_records.extend(res['records'])
+                global_name_counter.update(res['names'])
+                total_errors += res.get('errors', 0)
+                
+                if len(buffer_records) >= SAVE_THRESHOLD:
+                    SimulationUtils.save_chunk(buffer_records, temp_dir, chunk_counter)
+                    buffer_records = []
+                    chunk_counter += 1
+    except KeyboardInterrupt:
+        print("\n使用者中斷執行，正在保存現有進度...")
+        logging.warning("使用者中斷執行")
+    except Exception as e:
+        print(f"\n主進程發生錯誤: {e}")
+        logging.error(f"主進程發生錯誤: {e}")
+        traceback.print_exc()
+    finally:
+        stop_monitor.set()
+        monitor_thread.join()
+    
+    # 寫入剩餘資料
+    if buffer_records:
+        SimulationUtils.save_chunk(buffer_records, temp_dir, chunk_counter)
+        
+    print("\n" + "-" * 60)
+    total_duration = time.time() - start_global
+    print(f"模擬結束。總耗時 {total_duration:.2f} 秒。開始合併數據...")
+    logging.info(f"模擬結束。總耗時 {total_duration:.2f} 秒。")
+
+    # ==========================================
+    # 合併 Parquet 數據
+    # ==========================================
+    final_parquet_path = os.path.join(run_dir, 'teams_data.parquet')
+    
+    try:
+        # 檢查是否有生成的檔案
+        if not os.listdir(temp_dir):
+            print("警告: 沒有生成任何數據檔案。")
+            return
+
+        df_all = pd.read_parquet(temp_dir)
+        df_all.to_parquet(final_parquet_path, engine='pyarrow')
+        logging.info(f"所有分塊已合併至: {final_parquet_path}")
+        
+        shutil.rmtree(temp_dir)
+        logging.info("暫存目錄已清理。")
+        
+        # ==========================================
+        # 報告生成
+        # ==========================================
+        logging.info("正在分析數據並生成報告...")
+        
+        scores = df_all['weighted_score']
+        times = df_all['generation_time']
+        
+        avg_score = scores.mean()
+        stdev_score = scores.std()
+        min_score = scores.min()
+        max_score = scores.max()
+        avg_time = times.mean()
+        
+        total_players = sum(global_name_counter.values())
+        unique_names = len(global_name_counter)
+        duplicate_ratio = ((total_players - unique_names) / total_players) * 100 if total_players > 0 else 0
+        top_duplicates = global_name_counter.most_common(10)
+
+        report_file = os.path.join(run_dir, "report.md")
+        with open(report_file, 'w', encoding='utf-8') as f:
+            f.write(f"# ASBL 隊伍生成大數據壓力測試報告\n")
+            f.write(f"**執行時間**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"**Python 版本**: {sys.version}\n")
+            f.write(f"**資料路徑**: `{run_dir}`\n")
+            f.write(f"**目標/實際**: {TARGET_TEAMS:,} / {len(df_all):,}\n")
+            f.write(f"**失敗次數**: {total_errors}\n\n")
+            
+            f.write(f"## 1. 統計數據\n")
+            f.write(f"- **平均加權分**: {avg_score:.4f}\n")
+            f.write(f"- **標準差**: {stdev_score:.4f}\n")
+            f.write(f"- **最小/最大分**: {min_score:.4f} / {max_score:.4f}\n")
+            f.write(f"- **平均生成時間**: {avg_time:.6f} 秒/隊\n")
+            f.write(f"- **名字重複率**: {duplicate_ratio:.4f}%\n")
+            
+            f.write(f"## 2. 前 10 名重複名字\n")
+            f.write(f"| 名字 | 次數 |\n|---|---|\n")
+            for name, count in top_duplicates:
+                f.write(f"| {name} | {count} |\n")
+                
+        print(f"報告已生成於：{report_file}")
+        logging.info(f"報告已生成於：{report_file}")
+
+    except Exception as e:
+        logging.error(f"合併 Parquet 或生成報告失敗: {e}")
+        traceback.print_exc()
+
+if __name__ == '__main__':
+    main()
+
 
 ============================================================
 

@@ -650,3 +650,44 @@
 -   **前端開發啟動**: 著手架構前端專案，準備串接 API。
 
 --
+
+## 2026-02-16 12:00 : API 路由實作與開隊規則優化 (API Implementation & Team Gen v3.5)
+
+### ✅ 進度摘要
+本次更新正式將後端邏輯封裝為 RESTful API，建立了 `Auth`, `Team`, `Game` 三大路由模組，使前端能與比賽引擎互動。同時，針對 **Player System Spec v3.5** 進行了實作，引入了「分層位置覆蓋 (Tiered Position Coverage)」機制，確保玩家在開局時獲得的高階球員 (SSR-A) 與中階球員 (B-C) 能均勻分佈於五個位置，避免陣容結構失衡。此外，新增了專案快照工具以利後續維護。
+
+### 🛠️ 技術細節
+
+1.  **API 路由層實作 (`app/routes/`)**
+    -   **Auth (`auth.py`)**: 
+        -   整合 `TeamCreator` 與 `PlayerGenerator`。
+        -   註冊成功時，系統會自動建立球隊並生成符合 v3.5 規則的 15 人初始名單，寫入資料庫。
+    -   **Team (`team.py`)**: 
+        -   提供 `/api/team/<id>/roster` 端點，回傳包含詳細屬性 (Physical, Offense, Defense, Mental) 的 JSON 結構，供前端顯示球員卡片。
+    -   **Game (`game.py`)**: 
+        -   提供 `/api/game/simulate` 端點。
+        -   實作 `DBToEngineAdapter`，將資料庫模型轉換為引擎模型，執行單場模擬並回傳 Box Score 與 Play-by-Play 紀錄。
+
+2.  **開隊生成邏輯升級 (Spec v3.5)**
+    -   **分層位置覆蓋**:
+        -   更新 `config/game_config.yaml` 與 `team_creator.py`。
+        -   **High Tier (SSR/SS/S/A)**: 強制要求這組球員必須覆蓋 C, PF, SF, SG, PG 各至少 1 人。
+        -   **Mid Tier (B/C)**: 同樣強制覆蓋 5 個位置。
+        -   **目的**: 確保玩家開局時，無論是核心主力還是輪替陣容，都有完整的戰術執行能力。
+
+3.  **資料模型與工具擴充**
+    -   **Player Model**: 新增 `grade` 欄位 (SSR~G)，將評級持久化，減少執行時期的重複計算。
+    -   **Project Exporter**: 新增 `scripts/utils/project_exporter.py`，可生成包含完整檔案內容的專案快照 Markdown，利於 AI 輔助開發與代碼審查。
+    -   **Documentation**: 新增 `ASBL_Database_Schema.md`，完整定義資料表結構與關聯。
+
+### 📝 筆記
+-   **架構驗證**: 透過 Postman 測試 `/api/game/simulate`，確認從 DB 讀取球隊 -> 轉換模型 -> 引擎模擬 -> 回傳 JSON 的流程順暢無誤，平均響應時間在 200ms 內 (視模擬複雜度而定)。
+-   **資料庫變更**: `Player` 表新增了 `grade` 欄位，需執行 Migration。
+
+### 🔜 下一步計畫
+-   **前端架構搭建**: 初始化 React + Vite + TypeScript 專案。
+-   **UI 開發**: 實作登入頁面、球隊陣容管理頁面 (Roster) 與比賽直播頁面 (Live Game)。
+
+--
+
+

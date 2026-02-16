@@ -1,4 +1,8 @@
 # app/models/__init__.py
-from app.models.user import User, Team
-from app.models.player import Player, Contract
-from app.models.system import NameLibrary 
+from app.models.user import User
+from app.models.team import Team
+from app.models.player import Player, PlayerGrowthLog
+from app.models.contract import Contract
+from app.models.system import NameLibrary
+
+# 這裡不需匯出 match，因為目前 match.py 是空的，且我們使用 Parquet 存比賽紀錄

@@ -13,8 +13,6 @@ app = create_app()
 def init_database():
     with app.app_context():
         # 1. 刪除舊表 (開發初期用，正式上線後要小心！)
-        db.drop_all() 
-        print("🗑️  舊資料表已清除 (如有)")
 
         # 2. 建立新表
         db.create_all()

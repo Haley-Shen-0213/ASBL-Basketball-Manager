@@ -18,11 +18,12 @@ class EnginePlayer:
     # --- 1. 識別與基本資訊 ---
     id: str
     name: str
+    nationality: str # 新增國籍欄位 (Spec v3.4)
     position: str  # 當前場上位置 (PG, SG, SF, PF, C)
     role: str      # 合約角色 (Star, Starter, etc.) - 用於計算上場時間權重
     grade: str     # 等級 (SSR, S, etc.) - 用於 Phase 2 數據分析
     height: float  # 身高 (cm)
-    age: int = 18  # 年齡
+    age: int # 年齡
     
     # --- 2. 體力系統 (Spec 2) ---
     current_stamina: float = 100.0

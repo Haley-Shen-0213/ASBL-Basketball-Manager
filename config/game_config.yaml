@@ -1,3 +1,4 @@
+# config/game_config.yaml
 # =============================================================================
 # ASBL 遊戲核心設定檔 (Final Version - Commented)
 # 對應規格書: 
@@ -187,19 +188,23 @@ generation:
 # =============================================================================
 team_creation:
   # [Spec v3.1 Section 5] 開隊陣容檢核標準
-  composition_count: {SSR: 1, SS: 2, S: 2, A: 2, B: 2, C: 2, G: 4} # 總共 15 人
+  composition_count: {SSR: 1, SS: 1, S: 1, A: 2, B: 3, C: 2, G: 5} # 總共 15 人
   validation:
     min_c: 2       # 最少中鋒數
     min_pg: 2      # 最少控衛數
     min_guards: 4  # PG+SG 總數下限
     min_forwards: 4 # SF+PF 總數下限
     
-    # 新增: Spec 5.2 高階球員位置覆蓋規則
-    # 程式邏輯: 檢查 team 中 grade 在 target_grades 的球員，其 position 集合是否包含 required_positions 的所有元素
-    high_tier_coverage:
-      enabled: True
-      target_grades: ["SSR", "SS", "S"]
-      required_positions: ["C", "PF", "SF", "SG", "PG"]
+    # [Spec v3.5 Section 5.2] 分層位置覆蓋規則 (Updated)
+    # 程式邏輯: 遍歷列表中的每一條規則，檢查符合 target_grades 的球員集合是否包含 required_positions
+    coverage_rules:
+      - name: "High Tier (SSR-A)"
+        target_grades: ["SSR", "SS", "S", "A"]
+        required_positions: ["C", "PF", "SF", "SG", "PG"]
+      
+      - name: "Mid Tier (B-C)"
+        target_grades: ["B", "C"]
+        required_positions: ["C", "PF", "SF", "SG", "PG"]
 
   # [Spec v3.2 Section 5.4] 開隊球員特殊生成規則 (New)
   # 用途: 僅在開隊時啟用能力下限限制，縮小隨機範圍

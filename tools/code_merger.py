@@ -1,4 +1,4 @@
-# /ASBL-Basketball-Manager/tools/code_merger.py
+# tools/code_merger.py
 # -*- coding: utf-8 -*-
 """
 專案名稱：ASBL-Basketball-Manager (籃球數據遊戲)
@@ -63,8 +63,14 @@ SPECIFIC_FILES = [
     "app/services/match_engine/utils/calculator.py",
     "app/services/match_engine/utils/rng.py",
 
-    # --- 比賽引擎測試工具 (Match Engine Test Utils) ---
+    # --- 測試工具 (Test Utils) ---
     "tests/match_bigdata_test/run_core_bigdata_test.py",
+    "tests/player_generator_big_data/analyzer.py",
+    "tests/player_generator_big_data/check_data_integrity.py",
+    "tests/player_generator_big_data/run_test.py",
+    "tests/player_generator_big_data/test_config.yaml",
+    "tests/team_bigdata_test/manual_merge.py",
+    "tests/team_bigdata_test/run_simulation.py",
 
     # --- 開發紀錄 (DEV_LOG.md) ---
     "DEV_LOG.md",

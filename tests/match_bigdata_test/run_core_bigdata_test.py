@@ -44,7 +44,7 @@ from app.services.match_engine.utils.rng import rng
 
 DEFAULT_PARQUET = "tests/match_bigdata_test/team/team_players.parquet"
 DEFAULT_OUTPUT_ROOT = "tests/match_bigdata_test/output"
-MAX_RETRIES_PER_GAME = 10
+MAX_RETRIES_PER_GAME = 100
 
 
 def now_id() -> str:
@@ -765,7 +765,7 @@ def build_report(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--parquet", type=str, default=DEFAULT_PARQUET)
-    parser.add_argument("--cycles", type=int, default=10, help="每 cycle 6 場；總場數=cycles*6")
+    parser.add_argument("--cycles", type=int, default=500, help="每 cycle 6 場；總場數=cycles*6")
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--output-root", type=str, default=DEFAULT_OUTPUT_ROOT)

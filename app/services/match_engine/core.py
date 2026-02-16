@@ -690,15 +690,12 @@ class MatchEngine:
         # 6. 封阻判定 (Block - Spec 4.3)
         # 若空間擁擠 (sp_bonus <= 0.5)，封阻機率提升
         if sp_bonus <= 0.5:
-            # --- 階段一：觸發判定 (Attempt Check) ---
-            blk_config = formulas.get('block', {})
-            blk_params = blk_config.get('params', {}) # 注意: YAML結構可能在 frontcourt.block 下
-            # 若讀取不到，嘗試從外層讀取 (視 YAML 結構而定，這裡假設在 frontcourt.block)
-            if not blk_config:
-                blk_config = formulas.get('block', {}) # Retry
-            
-            # 讀取公式 Key
+            # --- Config Loading ---
+            blk_config = fc_config.get('block', {})
+            blk_params = blk_config.get('params', {})
             blk_formulas = blk_config.get('formulas', {})
+
+            # --- 階段一：觸發判定 (Attempt Check) ---
             trigger_off_keys = self._resolve_formula(blk_formulas.get('trigger_off', ['off_move']), attr_pools)
             trigger_def_keys = self._resolve_formula(blk_formulas.get('trigger_def', ['def_contest', 'talent_defiq']), attr_pools)
             
@@ -708,11 +705,11 @@ class MatchEngine:
             
             # 計算機率
             # 基礎機率 1%
-            base_prob = blk_config.get('params', {}).get('base_prob', 0.01)
+            base_prob = blk_params.get('base_prob', 0.01)
             # 屬性修正: (防守 - 進攻) * 0.0001 (每100點差值+1%)
             attr_mod = (trig_def_val - trig_off_val) * 0.0001
             # 空間懲罰: 空間擁擠時大幅提升封蓋率
-            spacing_penalty = blk_config.get('params', {}).get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
+            spacing_penalty = blk_params.get('spacing_penalty_prob', 0.05) if sp_bonus < 0 else 0.0
             
             attempt_prob = max(0.0, base_prob + attr_mod + spacing_penalty)
             
@@ -736,7 +733,6 @@ class MatchEngine:
                 # Spec: Ratio = Off / Def. 數值越低防守優勢越大.
                 # 轉換為機率: Def / (Off + Def)
                 # 若 Off=500, Def=500 -> 50% 機率蓋掉
-                # 若 Off=400, Def=600 -> 60% 機率蓋掉
                 success_prob = p_def / (p_off + p_def) if (p_off + p_def) > 0 else 0.5
                 
                 if rng.decision(success_prob):
@@ -747,9 +743,6 @@ class MatchEngine:
                     # 封蓋失敗 -> 進攻方強行出手 (繼續流程)
                     # 可以在 ctx 中標記 'contested'，影響後續命中率或犯規率 (Optional)
                     ctx['is_contested'] = True
-                    # Log (Optional)
-                    # print(f"Block Attempt Failed: {shooter.name} powered through {blocker.name}")
-                    pass
 
         # 7. 抄截判定 (Steal - Spec 4.4 Full Implementation)
         # 讀取設定

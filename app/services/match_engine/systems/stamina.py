@@ -46,7 +46,7 @@ class StaminaSystem:
         if is_on_court:
             # [Spec 2.3] 消耗公式
             # 消耗量/分 = Coeff * [1 + (1 - 體能%)] + (1 - 健康%)
-            drain_per_min = drain_coeff * (1.0 + (1.0 - stamina_pct)) + (1.0 - health_pct)
+            drain_per_min = drain_coeff * ((1.0 + (1.0 - stamina_pct)) + (1.0 - health_pct))
             drain_per_min *= age_factor # <--- 乘上年齡因子
             change_per_minute = -drain_per_min
         else:
