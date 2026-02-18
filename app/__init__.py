@@ -31,13 +31,20 @@ def create_app(config_class=Config):
     from app.routes.team import team_bp
     from app.routes.game import game_bp
     from app.routes.scout import scout_bp
+    from app.routes.league import league_bp
     
     app.register_blueprint(auth_bp)
     app.register_blueprint(team_bp)
     app.register_blueprint(game_bp)
     app.register_blueprint(scout_bp)
+    app.register_blueprint(league_bp)
 
     # 導入 Models 以便 SQLAlchemy (和 Migrate) 能追蹤到
     from app import models
+
+    # [新增] 初始化排程器
+    # 注意：這必須放在 create_app 的最後，且在 return app 之前
+    from app.scheduler import init_scheduler
+    init_scheduler(app)
 
     return app

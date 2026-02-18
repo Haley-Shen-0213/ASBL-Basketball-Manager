@@ -6,6 +6,7 @@ import PlayerRoster from './components/PlayerRoster';
 import TacticsPage from './components/TacticsPage';
 import ScoutPage from './components/ScoutPage';
 import TeamsPage from './components/TeamsPage';
+import SchedulesPage from './components/SchedulesPage';
 import { 
   Users, Trophy, Calendar, ClipboardList, Search, 
   ShoppingBag, Repeat, MessageSquare, BookOpen, 
@@ -406,6 +407,7 @@ function App() {
           {activeTab === 'tactics' && <TacticsPage teamId={user.teamId} />}
           {activeTab === 'teams' && <TeamsPage />}
           {activeTab === 'scouts' && <ScoutPage userId={user.id} />}
+          {activeTab === 'schedules' && <SchedulesPage teamId={user.teamId} />} 
           {/* 其他頁面... */}
         </main>
       </div>

@@ -1,12 +1,14 @@
 # ASBL 資料庫架構規格書 (Database Schema Specification)
 
-**版本**: 1.3
+**版本**: 1.5
 **最後更新**: 2026-02-16
 **說明**: 本文件定義 ASBL 籃球經理遊戲的核心資料庫結構，對應 SQLAlchemy Models 與實際 DDL。
 **變更記錄**:
 *   v1.1: 初始版本。
 *   v1.2: 新增 `TeamTactics` 表，用於儲存球隊的戰術配置與登錄名單，實現資料解耦。
-*   v1.3: 新增 `TeamTactics` 表，用於儲存球隊的戰術配置與登錄名單，實現資料解耦。
+*   v1.3: 新增 `ScoutingRecord` 表，用於球探系統。
+*   v1.4: 新增 `Matches`, `MatchTeamStats`, `MatchPlayerStats` 表，用於儲存比賽引擎執行結果與詳細數據；新增 `users.is_bot` 欄位。
+*   v1.5: 配合聯賽系統，於 `Teams` 表新增主客場次數統計 (`home/away_games_played`) 及完善狀態欄位。
 
 ---
 
@@ -17,65 +19,65 @@ erDiagram
     USERS ||--|| TEAMS : owns
     TEAMS ||--|{ PLAYERS : has
     TEAMS ||--|{ CONTRACTS : pays
+    TEAMS ||--o{ MATCHES : "home/away"
     PLAYERS ||--|| CONTRACTS : signs
     PLAYERS ||--|{ PLAYER_GROWTH_LOGS : tracks
+    PLAYERS ||--o{ MATCH_PLAYER_STATS : records
+
+    MATCHES ||--|{ MATCH_TEAM_STATS : contains
+    MATCHES ||--|{ MATCH_PLAYER_STATS : contains
 
     USERS {
         int id PK
         string username
         string email
-        string password_hash
+        tinyint is_bot
     }
 
     TEAMS {
         int id PK
-        int user_id FK
         string name
-        bigint funds
+        string status
+        boolean is_official
         int reputation
+        int home_games_played
+        int away_games_played
     }
 
     PLAYERS {
         int id PK
         int team_id FK
         string name
-        string nationality
-        string grade "New v1.1"
-        int age
-        int height
-        string position
+        string grade
         int rating
-        json detailed_stats "當前能力值"
-        json initial_stats "初始/巔峰能力值"
-        int training_points "可用訓練點數"
+        json detailed_stats
     }
 
-    CONTRACTS {
+    MATCHES {
         int id PK
-        int player_id FK
+        int home_team_id FK
+        int away_team_id FK
+        int home_score
+        int away_score
+        json pbp_logs "文字轉播"
+    }
+
+    MATCH_TEAM_STATS {
+        int id PK
+        int match_id FK
         int team_id FK
-        int salary
-        int years
-        int years_left
-        string role
+        int possessions
+        json possession_history
     }
 
-    PLAYER_GROWTH_LOGS {
+    MATCH_PLAYER_STATS {
         int id PK
+        int match_id FK
         int player_id FK
-        int season_id
-        string event_type
-        json change_delta
-        datetime created_at
-    }
-
-    SYSTEM_NAME_LIBRARY {
-        int id PK
-        string language
-        string category
-        string content
-        int weight
-        int length
+        int pts
+        int reb
+        int ast
+        float remaining_stamina
     }
 ```
 
@@ -90,8 +92,9 @@ erDiagram
 | `username` | String(64) | Unique, Not Null | 帳號名稱 |
 | `email` | String(120) | Unique, Not Null | 電子信箱 |
 | `password_hash` | String(256) | Nullable | 加密密碼 (DDL 允許為空，邏輯上應必填) |
-| `created_at` | DateTime | Nullable | 註冊時間 (由 App 寫入) |
+| `created_at` | DateTime | Nullable | 帳號建立時間 (由 App 寫入) |
 | `last_login` | DateTime | Nullable | 最後登入時間 (由 App 寫入) |
+| `is_bot` | TinyInt(1) | Default 0 | 是否為電腦 (0:否, 1:是) |
 
 ### 2.2 Teams (球隊)
 | 欄位名稱 | 類型 | 屬性 | 說明 |
@@ -107,6 +110,10 @@ erDiagram
 | `season_wins` | Integer | Nullable | 球隊勝場 (由 App 寫入) |
 | `season_losses` | Integer | Nullable | 球隊敗場 (由 App 寫入) |
 | `daily_scout_level` | Integer | Nullable | 每日球探投入等級(0-10) (App 預設 0) |
+| `status` | String(20) | Default 'BOT' | 球隊狀態 ('BOT', 'PLAYER', 'PROVISIONAL') |
+| `is_official` | Boolean | Default True | 是否為正式聯賽球隊 |
+| `home_games_played`| Integer | Default 0 | 本季已進行主場數 |
+| `away_games_played`| Integer | Default 0 | 本季已進行客場數 |
 
 ### 2.3 Players (球員)
 *設計重點：針對老化機制，保留 `initial_stats` 作為對照組。*
@@ -170,7 +177,7 @@ erDiagram
 | `length` | Integer | Nullable | **[v1.1 修正]** 內容字數 (由 App 計算寫入) |
 | `weight` | Integer | Default 10, Unsigned | 出現權重 |
 
-## 2.7 Team Tactics (球隊戰術配置)
+### 2.7 Team Tactics (球隊戰術配置)
 *用途：儲存球隊的戰術設定，包含 15 人登錄名單。*
 
 | 欄位名稱 | 類型 | 屬性 | 說明 |
@@ -182,13 +189,79 @@ erDiagram
 | `created_at` | DateTime | Default Now | 建立時間 |
 | `updated_at` | DateTime | Default Now | 更新時間 |
 
-## 2.8 Scouting Records (球探待簽名單紀錄)
+### 2.8 Scouting Records (球探待簽名單紀錄)
 *用途：儲存球隊的球探待簽名單紀錄。*
 
 | 欄位名稱 | 類型 | 屬性 | 說明 |
 | :--- | :--- | :--- | :--- |
-| `id` | Integer | PK, Auto Inc | 戰術配置 ID |
-| `team_id` | Integer | FK(teams.id), Unique | 所屬球隊 (一對一) |
+| `id` | Integer | PK, Auto Inc | 紀錄 ID |
+| `team_id` | Integer | FK(teams.id) | 所屬球隊 |
 | `player_id` | Integer | FK(players.id) | 球員 ID |
 | `created_at` | DateTime | Default Now | 建立時間 |
 | `expire_at` | DateTime | NOT NULL | 過期時間 |
+
+### 2.9 Matches (比賽主表)
+*用途：儲存比賽的基礎資訊、比分結果與文字轉播紀錄。*
+
+| 欄位名稱 | 類型 | 屬性 | 說明 |
+| :--- | :--- | :--- | :--- |
+| `id` | Integer | PK, Auto Inc | 比賽 ID (自動遞增) |
+| `season_id` | Integer | Default 1 | 賽季編號 |
+| `date` | DateTime | Default Now | 比賽日期 |
+| `home_team_id` | Integer | FK(teams.id), Not Null | 主隊 ID |
+| `away_team_id` | Integer | FK(teams.id), Not Null | 客隊 ID |
+| `home_score` | Integer | Not Null | 主隊得分 |
+| `away_score` | Integer | Not Null | 客隊得分 |
+| `is_ot` | Boolean | Default False | 是否有延長賽 |
+| `total_quarters`| Integer | Default 4 | 總節數 |
+| `pace` | Float | Default 0.0 | 比賽節奏 (Pace) |
+| `pbp_logs` | **JSON** | Nullable | **文字轉播紀錄** (List of Strings) |
+| `created_at` | DateTime | Default Now | 建立時間 |
+
+### 2.10 Match Team Stats (球隊比賽數據)
+*用途：儲存單場比賽中，主客隊各自的進階數據 (如違例、快攻、節奏分析)。*
+
+| 欄位名稱 | 類型 | 屬性 | 說明 |
+| :--- | :--- | :--- | :--- |
+| `id` | Integer | PK, Auto Inc | 數據 ID |
+| `match_id` | Integer | FK(matches.id), Not Null | 關聯比賽 ID |
+| `team_id` | Integer | FK(teams.id), Not Null | 關聯球隊 ID |
+| `is_home` | Boolean | Not Null | 是否為主隊 |
+| `possessions` | Integer | Default 0 | 總回合數 |
+| `avg_seconds_per_poss` | Float | Default 0.0 | 平均每回合秒數 |
+| `fb_made` | Integer | Default 0 | 快攻進球數 |
+| `fb_attempt` | Integer | Default 0 | 快攻嘗試數 |
+| `violation_8s` | Integer | Default 0 | 8秒違例次數 (Spec v2.4) |
+| `violation_24s` | Integer | Default 0 | 24秒違例次數 (Spec v2.4) |
+| `possession_history` | **JSON** | Nullable | **每回合時間歷程** (List of Floats) |
+
+### 2.11 Match Player Stats (球員比賽數據 / Box Score)
+*用途：儲存單場比賽中，每位上場球員的詳細攻守數據。*
+
+| 欄位名稱 | 類型 | 屬性 | 說明 |
+| :--- | :--- | :--- | :--- |
+| `id` | Integer | PK, Auto Inc | 數據 ID |
+| `match_id` | Integer | FK(matches.id), Not Null | 關聯比賽 ID |
+| `team_id` | Integer | FK(teams.id), Not Null | 關聯球隊 ID |
+| `player_id` | Integer | FK(players.id), Not Null | 關聯球員 ID |
+| `grade` | String(5) | Nullable | **當時等級** (快照，避免球員成長後歷史數據失真) |
+| `position` | String(10)| Nullable | **當時位置** (快照) |
+| `role` | String(20)| Nullable | **當時角色** (快照) |
+| `seconds_played`| Float | Default 0.0 | 上場秒數 |
+| `is_starter` | Boolean | Default False | 是否先發 |
+| `pts` | Integer | Default 0 | 得分 |
+| `reb` | Integer | Default 0 | 籃板 |
+| `ast` | Integer | Default 0 | 助攻 |
+| `stl` | Integer | Default 0 | 抄截 |
+| `blk` | Integer | Default 0 | 阻攻 |
+| `tov` | Integer | Default 0 | 失誤 |
+| `fouls` | Integer | Default 0 | 犯規 |
+| `plus_minus` | Integer | Default 0 | 正負值 (+/-) |
+| `fgm` / `fga` | Integer | Default 0 | 投籃命中 / 出手 |
+| `m3pm` / `m3pa` | Integer | Default 0 | 三分命中 / 出手 |
+| `ftm` / `fta` | Integer | Default 0 | 罰球命中 / 出手 |
+| `orb` / `drb` | Integer | Default 0 | 進攻 / 防守籃板 |
+| `fb_made` | Integer | Default 0 | 快攻進球 (Spec Phase 2) |
+| `fb_attempt` | Integer | Default 0 | 快攻嘗試 (Spec Phase 2) |
+| `remaining_stamina` | Float | Default 0.0 | 賽後剩餘體力 (Spec Phase 2) |
+| `is_fouled_out` | Boolean | Default False | 是否犯滿離場 |

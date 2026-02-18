@@ -214,6 +214,11 @@ class MatchEngine:
                     remaining.remove(best_p)
 
         team.on_court = [p for p in starters if p]
+        
+        # 標記先發球員
+        for p in team.on_court:
+            p.is_starter = True
+
         team.bench = [p for p in team.roster if p.id not in taken_ids]
 
     def _resolve_formula(self, formula: Union[str, List[str]], attr_pools: Dict) -> List[str]:
@@ -255,10 +260,13 @@ class MatchEngine:
 
         self.state.is_over = True
 
-        # --- 新增回填邏輯 ---
+        # --- 回填邏輯 ---
         for team in [self.home_team, self.away_team]:
             for p in team.roster:
                 p.stat_remaining_stamina = p.current_stamina
+                # 自動標記出賽：只要上場秒數 > 0 即視為出賽
+                if p.seconds_played > 0:
+                    p.is_played = True
         # ------------------
         
         # 5. 計算 Pace (Possessions per 48 min)

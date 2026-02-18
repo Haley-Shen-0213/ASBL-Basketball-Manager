@@ -806,3 +806,47 @@
   -   **每日模擬排程**: 整合 `MatchEngine` 與排程系統，實作每日自動模擬比賽的功能。
 
 --
+
+## 2026-02-18 15:30 : 聯賽排程系統與自動化模擬實作 (League Scheduling & Automated Simulation)
+
+### ✅ 進度摘要
+本次更新完成了遊戲的核心循環機制。實作了 **聯賽服務 (League Service)** 與 **排程器 (Scheduler)**，現在系統能夠自動推進賽季日期、生成每日賽程，並在指定時間自動執行比賽模擬。前端部分，新增了 **賽程頁面 (Schedules)** 與 **比賽詳情 (Match Details)**，玩家可以查看每日對戰組合、比分以及詳細的攻守數據 (Box Score) 與文字轉播 (PBP)。
+
+### 🛠️ 技術細節
+
+1.  **聯賽核心邏輯 (`app/services/league_service.py`)**
+    -   **賽季管理**: 實作 `Season` 模型，追蹤當前賽季階段 (例行賽/季後賽) 與天數。
+    -   **每日配對 (00:00)**:
+        -   **正式聯賽**: 採用 Round-Robin 演算法生成雙循環賽程。
+        -   **擴充聯賽**: 實作基於聲望 (Reputation) 的動態配對機制，落單球隊自動配對 Ghost Bot。
+    -   **比賽執行 (19:00)**:
+        -   批量讀取當日 `PUBLISHED` 狀態的賽程。
+        -   呼叫 `MatchEngine` 進行模擬。
+        -   將模擬結果 (`MatchResult`) 轉存至 `Match`, `MatchTeamStat`, `MatchPlayerStat` 資料表。
+        -   執行 `Team.update_season_stats()` 同步更新戰績與排名。
+
+2.  **自動化排程系統 (`app/scheduler.py`)**
+    -   **APScheduler 整合**: 使用 `BackgroundScheduler` 執行背景任務。
+    -   **Socket Lock 機制**: 解決 Flask Debug Mode 下 Reloader 導致排程器重複啟動 (Double Execution) 的問題，確保全域只有一個排程實例。
+    -   **任務定義**:
+        -   `daily_change`: 每日 00:00 觸發換日與配對。
+        -   `daily_match`: 每日 19:00 觸發比賽模擬。
+
+3.  **比賽數據擴充與前端呈現**
+    -   **進階數據儲存**: 在 `MatchTeamStat` 中新增 `possession_history` (JSON)，記錄每一回合的消耗時間，用於分析球隊節奏 (Pace)。
+    -   **前端組件 (`frontend/src/components/`)**:
+        -   **SchedulesPage**: 顯示每日賽程卡片，區分正式/擴充聯賽，並標示勝敗與比分。
+        -   **MatchDetailModal**: 實作 Tab 切換介面，完整呈現雙方 Box Score (含 +/- 值、效率) 與 Play-by-Play 文字流。
+        -   **TeamsPage**: 實作聯盟排行榜，依據聲望與勝場排序。
+
+### 📝 筆記
+-   **資料一致性**: 在 `LeagueService` 中，比賽模擬後的戰績更新採用了 `flush()` 與 `commit()` 的分離策略，確保所有比賽數據寫入成功後才更新排名，避免數據不一致。
+-   **效能優化**: 賽程列表 API (`/api/league/schedule`) 針對 `match_id` 進行了預先加載 (Eager Loading) 的優化，減少 N+1 查詢問題。
+
+### 🔜 下一步計畫
+-   **季後賽邏輯**: 實作季後賽樹狀圖生成 (Bracket Generation) 與晉級判定。
+-   **球員成長結算**: 在休賽季階段加入球員老化與能力值成長的批次處理。
+
+--
+
+

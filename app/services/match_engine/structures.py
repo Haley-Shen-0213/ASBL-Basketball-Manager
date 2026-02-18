@@ -24,7 +24,7 @@ class EnginePlayer:
     grade: str     # 等級 (SSR, S, etc.) - 用於 Phase 2 數據分析
     height: float  # 身高 (cm)
     age: int # 年齡   
-    training_points: int = 0 # [新增] 訓練點數 (用於前端顯示與管理)
+    training_points: int = 0 # 訓練點數 (用於前端顯示與管理)
     
     # --- 2. 體力系統 (Spec 2) ---
     current_stamina: float = 100.0
@@ -34,6 +34,8 @@ class EnginePlayer:
     target_seconds: float = 0.0 # 目標上場秒數 (由 Minutes Distribution 計算)
     seconds_played: float = 0.0 # 已上場秒數
     is_fouled_out: bool = False # 是否犯滿離場
+    is_starter: bool = False    # 是否為先發球員 (用於數據統計)
+    is_played: bool = False    # 是否為出賽球員 (用於數據統計)
     
     # --- 4. 屬性緩存 (Spec 2.3) ---
     # 為了效能，我們將 DB 中的巢狀結構 (physical.strength) 展平為單層屬性。

@@ -16,6 +16,10 @@ class User(db.Model):
     # [新增] 記錄最後登入時間，用於計算活躍人數
     last_login = db.Column(db.DateTime, default=datetime.utcnow, comment='最後登入時間')
     
+    # --- [新增] 機器人標記 ---
+    is_bot = db.Column(db.Boolean, default=False, comment='是否為電腦球隊管理者')
+    # -----------------------
+    
     # 關聯：使用字串 'Team' 避免循環引用
     team = db.relationship('Team', backref='owner', uselist=False)
 
