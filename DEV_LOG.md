@@ -849,51 +849,38 @@
 
 --
 
-## 2026-02-20 08:30 : 聯賽排程、自動化模擬與前端整合 (League Scheduling, Automation & Frontend Integration)
+## 2026-02-20 08:30 : AI 球員卡牌生成系統與背景任務整合 (AI Card Generation & Background Tasks)
 
-  ### ✅ 進度摘要
-  本次更新完成了遊戲的核心循環機制 (Core Loop)。實作了 **聯賽服務 (League Service)** 與 **排程器 (Scheduler)**，現在系統能夠自動推進賽季日期、生成每日賽程，並在指定時間自動執行比賽模擬。前端部分，新增了 **賽程頁面 (Schedules)** 與 **比賽詳情 (Match Details)**，玩家可以查看每日對戰組合、比分以及詳細的攻守數據 (Box Score) 與文字轉播 (PBP)。此外，球探系統 (Scout System) 也已完成全端整合。
+### ✅ 進度摘要
+本次更新正式引入了 **AI 圖像生成系統 (Spec v5.0)**，利用 Stable Diffusion 為每位球員生成獨一無二的卡牌插圖。系統採用 **非同步背景任務 (Background Task)** 架構，確保在註冊或球探生成球員時，API 回應不會因繪圖運算而阻塞。同時，建立了一套基於球員屬性的 **動態提示詞引擎 (Prompt Engine)**，將數值 (如運球、彈跳) 轉化為具體的視覺動作與特效。
 
-  ### 🛠️ 技術細節
+### 🛠️ 技術細節
 
-  1.  **聯賽核心邏輯 (`app/services/league_service.py`)**
-      -   **賽季管理**: 實作 `Season` 模型，追蹤當前賽季階段 (例行賽/季後賽) 與天數。
-      -   **每日配對 (00:00)**:
-          -   **正式聯賽**: 採用 Round-Robin 演算法生成雙循環賽程。
-          -   **擴充聯賽**: 實作基於聲望 (Reputation) 的動態配對機制，落單球隊自動配對 Ghost Bot。
-      -   **比賽執行 (19:00)**:
-          -   批量讀取當日 `PUBLISHED` 狀態的賽程。
-          -   呼叫 `MatchEngine` 進行模擬。
-          -   將模擬結果 (`MatchResult`) 轉存至 `Match`, `MatchTeamStat`, `MatchPlayerStat` 資料表。
-          -   執行 `Team.update_season_stats()` 同步更新戰績與排名。
+1.  **AI 生成服務 (`app/services/image_generation_service.py`)**
+    -   **Facade 模式**: 封裝與 Stable Diffusion WebUI API 的溝通邏輯。
+    -   **Prompt Engine**: 實作屬性映射邏輯。
+        -   **動作 (Actions)**: 若球員 `off_dribble > 80`，自動加入 `crossover` 提示詞；若 `ath_jump > 80`，加入 `tomahawk dunk`。
+        -   **特徵 (Traits)**: 將身高、體格、年齡映射為視覺描述 (如 `tall stature`, `muscular build`)。
+        -   **稀有度特效 (Rarity FX)**: 依據 Grade (SSR~G) 自動套用不同的背景與光影特效 (如 SSR 的 `golden divine aura`)。
+    -   **非阻塞機制**: 使用 `threading.Thread` 搭配 Flask `app_context`，在背景執行生成任務，避免拖慢前端 UX。
 
-  2.  **自動化排程系統 (`app/scheduler.py`)**
-      -   **APScheduler 整合**: 使用 `BackgroundScheduler` 執行背景任務。
-      -   **Socket Lock 機制**: 解決 Flask Debug Mode 下 Reloader 導致排程器重複啟動 (Double Execution) 的問題，確保全域只有一個排程實例。
-      -   **任務定義**:
-          -   `daily_change`: 每日 00:00 觸發換日與配對。
-          -   `daily_match`: 每日 19:00 觸發比賽模擬。
+2.  **業務流程整合**
+    -   **Auth (`auth.py`)**: 玩家註冊並建立球隊後，自動觸發初始 15 人名單的背景繪圖任務。
+    -   **Scout (`scout_service.py`)**: 產生待簽球員時，同步觸發單張卡牌生成。
 
-  3.  **球探系統全端整合**
-      -   **後端 (`app/routes/scout.py`)**: 完成搜尋設定、執行搜尋、待簽名單查詢與簽約 API。
-      -   **前端 (`frontend/src/components/ScoutPage.tsx`)**: 實作互動式儀表板，整合每日投入設定滑桿與手動搜尋按鈕。
+3.  **配置與工具擴充**
+    -   **Config (`config/game_config.yaml`)**: 新增 `ai_card_generation` 區塊，定義模型路徑、LoRA 設定、Prompt 模板與屬性映射規則。
+    -   **工具腳本**:
+        -   `tools/ai_card_generator.py`: 開發測試工具，可生成 HTML 報告預覽不同模型的生成效果。
+        -   `scripts/batch_generate_images.py`: 維運腳本，用於掃描資料庫並補齊尚未生成圖片的球員卡。
 
-  4.  **比賽數據擴充與前端呈現**
-      -   **進階數據儲存**: 在 `MatchTeamStat` 中新增 `possession_history` (JSON)，記錄每一回合的消耗時間，用於分析球隊節奏 (Pace)。
-      -   **前端組件 (`frontend/src/components/`)**:
-          -   **SchedulesPage**: 顯示每日賽程卡片，區分正式/擴充聯賽，並標示勝敗與比分。
-          -   **MatchDetailModal**: 實作 Tab 切換介面，完整呈現雙方 Box Score (含 +/- 值、效率) 與 Play-by-Play 文字流。
-          -   **TeamsPage**: 實作聯盟排行榜，依據聲望與勝場排序。
+### 📝 筆記
+-   **效能優化**: 針對大量生成需求 (如開隊 15 人)，採用佇列或批次處理概念，但在目前的實作中先以 Thread 處理，需注意 GPU 負載。
+-   **視覺風格**: 目前設定為 `Anthropomorphic Chibi Cat` 風格，配合 LoRA `CharacterDesign-IZT` 統一畫風。
 
-  ### 📝 筆記
-  -   **資料一致性**: 在 `LeagueService` 中，比賽模擬後的戰績更新採用了 `flush()` 與 `commit()` 的分離策略，確保所有比賽數據寫入成功後才更新排名，避免數據不一致。
-  -   **效能優化**: 賽程列表 API (`/api/league/schedule`) 針對 `match_id` 進行了預先加載 (Eager Loading) 的優化，減少 N+1 查詢問題。
-
-  ### 🔜 下一步計畫
-  -   **訓練系統實裝**: 實作訓練點數的計算邏輯 (基於上場時間與年齡) 以及前端分配介面。
-  -   **生成流程優化**: 優化球員與球隊的生成效能與邏輯，確保大數據下的穩定性。
-  -   **經濟系統開發**: 著手設計球隊收支、薪資帽運作與自由市場機制。
+### 🔜 下一步計畫
+-   **訓練系統實裝**: 實作訓練點數的計算公式 (成長/巔峰/衰退) 以及前端分配介面。
+-   **生成流程優化**: 優化球員與球隊的生成效能，減少資料庫 I/O。
+-   **經濟系統開發**: 著手設計球隊收支、薪資帽運算與自由市場機制。
 
 --
-
-
