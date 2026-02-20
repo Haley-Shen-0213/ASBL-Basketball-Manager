@@ -1,4 +1,5 @@
 # app/services/scout_service.py (球探服務邏輯)
+from flask import current_app
 from datetime import datetime, timedelta
 from app import db
 from app.models.team import Team
@@ -8,6 +9,7 @@ from app.models.scout import ScoutingRecord
 from app.models.user import User
 from app.services.player_generator import PlayerGenerator
 from app.utils.game_config_loader import GameConfigLoader
+from app.services.image_generation_service import ImageGenerationService
 
 class ScoutService:
     
@@ -32,6 +34,17 @@ class ScoutService:
         )
         db.session.add(record)
         db.session.commit()
+
+        # 4. [New] 觸發背景圖片生成
+        try:
+            # 檢查是否有 App Context (如果是從排程呼叫，可能需要注意)
+            if current_app:
+                ImageGenerationService.start_background_generation(
+                    current_app._get_current_object(), 
+                    [player.id]
+                )
+        except Exception as e:
+            print(f"⚠️ [Scout] 圖片生成觸發失敗: {e}")
         
         return player
 

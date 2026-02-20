@@ -234,3 +234,4 @@ reports/
 test_*.py
 Untitled-*
 docs/PROJECT_CONTEXT
+frontend/public/assets/cards/*

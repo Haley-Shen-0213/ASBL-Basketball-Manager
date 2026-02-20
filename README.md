@@ -1,219 +1,238 @@
-# ASBL Basketball Manager (ASBL)
+# ASBL Basketball Manager (Advanced Simulation Basketball League)
 
-ASBL 是一款基於網頁的文字策略經營遊戲 (Web-based Text Strategy Game)。玩家扮演球隊經理，在嚴格的薪資限制下，透過選秀、交易、培養與戰術調度，打造屬於自己的冠軍王朝。
+![Python](https://img.shields.io/badge/Python-3.13-blue?style=for-the-badge&logo=python)
+![Flask](https://img.shields.io/badge/Flask-3.0-green?style=for-the-badge&logo=flask)
+![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
+![MySQL](https://img.shields.io/badge/MySQL-9.0-4479A1?style=for-the-badge&logo=mysql)
+![Stable Diffusion](https://img.shields.io/badge/AI-Stable_Diffusion-orange?style=for-the-badge)
 
-本專案採用 **Python 3.13 (Flask)** 作為後端框架，搭配 **MySQL 9.0** 資料庫進行開發，並引入 **Polars** 與 **Parquet** 進行大數據級別的數值平衡驗證。
-
----
-
-## 📚 遊戲核心規則 (Game Rules)
-
-### 1. 球員系統 (Player System) - Spec v3.3
-
-> ⚠️ **詳細技術規格**：關於球員生成演算法、常態分佈參數、開隊陣容檢核邏輯，請參閱 [ASBL_Player_System_Specification.md](ASBL_Player_System_Specification.md)。
-
-#### 屬性 (Attributes) - Spec v2.6
-球員能力值範圍為 **1~99**，分為五大類：
-*   **運動 (Physical)**: 體力、力量、速度、彈跳、健康(隱藏)。
-*   **投籃 (Offense - Shooting)**: 投籃準心、射程、手感(不可訓)、出手速度(不可訓)。
-*   **進攻 (Offense - Skill)**: 傳球、運球、控球、跑位。
-*   **防守 (Defense)**: 籃板、卡位、干擾、抄截。
-*   **天賦 (Mental)**: 進攻智商、防守智商、運氣(隱藏)。(永不改變)
-
-#### 年齡生成 (Age Generation)
-*   **SSR**: 固定 18 歲 (極具培養價值)。
-*   **G~SS**: 等級越低，初始年齡浮動範圍越大 (G級可能高達 24 歲)。
-
-#### 稀有度分級 (Rarity)
-基於「不可訓練項目」的數值總和進行分級：
-*   **SSR**: > 950
-*   **SS**: 900 - 950
-*   **S**: 800 - 899
-*   **A**: 700 - 799
-*   **B**: 600 - 699
-*   **C**: 400 - 599
-*   **G**: < 400
-
-#### 成長與退化 (Growth & Decline)
-*   **成長期 (18-25歲)**: 每上場 48 分鐘獲得 1 訓練點。
-*   **巔峰期 (26-29歲)**: 每上場 144 分鐘獲得 1 訓練點。
-*   **退化期 (30歲+)**: 隨上場時間與年齡增長，有機率扣除能力點數。
-
-#### 生成機制 (Generation Logic)
-*   **身高修正 (Height Correction)**: 身高會對屬性產生物理影響（如：矮個子運球/速度加成，高個子運球懲罰）。
-*   **年齡生成**: SSR 固定 18 歲 (極具培養價值)，等級越低初始年齡範圍越大。
-*   **開隊檢核**: 初始陣容強制執行「高階位置覆蓋」檢查，確保 SSR/SS/S 球員涵蓋 5 個位置。
+> **ASBL** 是一款基於高擬真數據模擬的現代化籃球經理遊戲。專案核心採用 **資料驅動 (Data-Driven)** 與 **配置化設計 (Config-Driven)** 架構，結合 Python 後端的高效運算與 React 前端的互動體驗，並引入 Stable Diffusion 進行 AI 球員卡牌生成。
 
 ---
 
-### 2. 薪資與合約 (Salary & Contract)
+## 📖 專案概述 (Overview)
 
-#### 薪資帽 (Salary Cap)
-*   **硬上限**: 團隊總薪資不可超過 **100%** (底薪合約例外)。
-*   **豪華稅**: 超過 100% 需支付倍率罰款。
-*   **簽約限制**: 若薪資已達 65%，必須先完成頂薪續約 (35%)，才可簽署底薪合約。**否則一旦超過 65% 空間，即無法完成頂薪續約。**
+本專案旨在打造一個具備高度策略深度與數值平衡的籃球模擬系統。不同於傳統遊戲，ASBL 的核心引擎經過 **上億次 (100M+)** 的大數據壓力測試驗證，確保常態分佈、極端值處理與比賽節奏 (Pace) 皆符合現代籃球規律。
 
-#### 角色定位與上場時間 (Role & Minutes)
-比賽總時間 240 分鐘。系統採用 **「保底時間 + 權重浮動」** 演算法分配時間。
-
-| 角色定位 | 保底時間 (Base) | 權重範圍 (Weight) | 說明 |
-| :--- | :--- | :--- | :--- |
-| **明星 (Star)** | **30 min** | **-1 ~ 5** | 核心主力，極其穩定。 |
-| **先發 (Starter)** | **20 min** | **-2 ~ 7** | 主力，有機會爆發獲得高時數。 |
-| **綠葉 (Rotation)** | **10 min** | **5 ~ 15** | 輪替核心，競爭剩餘時間。 |
-| **功能 (Role)** | **0 min** | **5 ~ 12** | 無保底，靠狀態爭取上場。 |
-| **板凳 (Bench)** | **0 min** | **0 ~ 10** | 邊緣人，可能 DNP。 |
+### 核心特色
+*   **高擬真比賽引擎 (L4 Match Engine)**: 支援 Play-by-Play 回合制模擬，包含體力衰退、8秒/24秒違例、快攻判定、空間 (Spacing) 計算與關鍵時刻 (Clutch) 強制調度。
+*   **參數與邏輯分離**: 所有機率、權重、公式係數皆抽離至 `game_config.yaml`，實現不改動程式碼即可調整遊戲平衡。
+*   **大數據驗證架構**: 內建 ETL 測試管線，利用 `Polars` 與 `Parquet` 處理千萬級別的球員生成與賽季模擬，產出詳細的 KPI 驗收報告。
+*   **AI 生成整合**: 整合 Stable Diffusion WebUI API，根據球員特徵 (種族、毛色、動作) 自動生成獨一無二的視覺化卡牌。
+*   **完整聯賽生態**: 包含正式聯賽 (36隊) 與擴充聯賽的升降機制、每日自動排程與戰績結算。
 
 ---
 
-### 3. 比賽引擎 (Match Engine) - v2.1
+## 🛠️ 技術架構 (Tech Stack)
 
-本系統採用純文字模擬引擎，依據 **ASBL Spec v2.1** 進行開發。
+### Backend (後端)
+*   **Framework**: Python 3.13 + Flask 3.0 (Application Factory Pattern)
+*   **Database**: MySQL 9.0 (Production) / SQLite (Dev), SQLAlchemy ORM
+*   **Simulation**: Custom Match Engine (Optimized with `__slots__` for memory efficiency)
+*   **Scheduling**: APScheduler (Background tasks for daily simulation)
+*   **Data Analysis**: Pandas, Polars, Apache Parquet (For big data testing)
 
-#### 核心機制
-*   **體力系統 (Stamina)**: 
-    - **年齡衰退**: 年齡超過 20 歲後，體力消耗與恢復效率隨年齡線性衰退。
-    - **動態懲罰**: 體力低於 80 時能力值開始線性下滑。
-*   **數據歸屬 (Data Attribution)**:
-    - **非隨機分配**: 得分、籃板、助攻等數據依據球員能力值（如身高、智商、運球）進行權重分配。
-    - **戰術地位**: 明星球員 (Star) 擁有更高的出手權重。
-*   **進階數據**: 支援 Pace (節奏)、快攻效率 (Fastbreak Efficiency) 等高階數據計算。
-*   **關鍵時刻 (Clutch)**: 第四節最後 2 分鐘與延長賽強制換上最強陣容 (Best 5)。
-*   **犯規離場**: 6 犯離場，並採用 Positional Top-K 邏輯動態重分配剩餘時間。
+### Frontend (前端)
+*   **Framework**: React 19 + Vite
+*   **Language**: TypeScript
+*   **Styling**: Tailwind CSS (Responsive Design)
+*   **State/API**: React Hooks, Fetch API (Proxy via Vite)
 
----
-
-## 🧪 大數據驗證架構 (Big Data Verification)
-
-為了確保遊戲數值平衡，我們建立了千萬級別的 ETL 測試管線。
-
-*   **技術核心**: Python Multiprocessing + Apache Parquet + Polars。
-*   **驗證規模**: 100,000,000 (一億) 筆球員生成 / 12,000,000 (一千兩百萬) 場比賽模擬。
-*   **KPI 報告**: 自動化生成 Markdown 報告，詳見 `docs/` 目錄。
-*   **驗證項目**:
-    *   常態分佈 (Normal Distribution) 檢核。
-    *   稀有度 (Rarity) 出現機率收斂檢核。
-    *   比賽勝率、分差與數據分佈 (Box Score) 合理性檢核。
+### AI & Tools
+*   **Image Gen**: Stable Diffusion WebUI API (Text-to-Image with LoRA)
+*   **DevOps**: Docker support, Python `multiprocessing` for stress testing.
 
 ---
 
-## 📅 開發時程 (Development Roadmap)
+## 🏗️ 系統模組設計 (System Modules)
 
-### Phase 1: 核心架構 (Foundation) - [已完成]
-*   [x] **資料庫建置**: 設計 User, Team, Player, Contract 等核心 Table。
-*   [x] **球員生成引擎 (v3.3)**: 實作 100 抽邏輯、身高修正、高階位置覆蓋檢核。
-*   [x] **合約系統**: 實作角色定位、薪資計算與簽約邏輯。
-*   [x] **時間分配演算法**: 實作 `calculate_minutes(roster)` 函數。
-*   [x] **大數據驗證**: 完成 1 億筆球員生成測試與 KPI 驗收報告。
+專案採用模組化設計，確保各子系統低耦合高內聚：
 
-### Phase 2: 比賽與成長 (Game Loop) - [已完成]
-*   [x] **比賽引擎 (v2.1)**: 實作完整回合制判定、快攻、犯規、罰球、身高修正與詳細數據紀錄。
-*   [x] **單場/批量模擬**: 完成無 DB 依賴的快速模擬腳本與千萬場次壓力測試。
-*   [ ] **成長系統**: 實作年齡檢查、點數計算 (成長/巔峰/退化公式)。
-*   [ ] **排程系統**: 每日自動結算比賽、更新球員年齡/合約天數。
+### 1. 比賽引擎 (`app/services/match_engine`)
+*   **Core**: 控制比賽狀態機 (跳球 -> 後場 -> 前場 -> 投籃 -> 結算)。
+*   **Systems**: 
+    *   `StaminaSystem`: 計算體力流失 (含年齡衰退) 與能力值動態懲罰。
+    *   `AttributionSystem`: 基於權重 (Weight) 分配籃板、助攻與出手權。
+    *   `SubstitutionSystem`: 處理自動輪替、犯滿離場與時間重分配 (Positional Top-K)。
+*   **Physics**: 實作身高修正 (Height Correction) 與速度折扣 (Speed Discount) 機制。
 
-### Phase 3: 經濟與交易 (Economy) - [進行中]
-*   [ ] **聯賽與選秀**: 定義 League 結構與 Draft 邏輯。
-*   [ ] **交易系統**: 實作掛單介面與條件匹配演算法。
-*   [ ] **自由市場**: 實作競標系統與 RFA (受限自由球員) 機制。
-*   [ ] **介面優化**: 完善前端顯示與操作體驗。
+### 2. 球員生成系統 (`app/services/player_generator.py`)
+*   **演算法**: Box-Muller Transform (身高常態分佈)。
+*   **檢核機制**: 
+    *   **反向總上限 (Reverse Cap)**: 限制高潛力球員的初始能力。
+    *   **位置檢核**: 確保生成的數值分佈符合位置特徵 (如 C 的籃板能力)。
+    *   **開隊規則**: 強制高階球員 (SSR/SS) 覆蓋 5 個位置。
+
+### 3. 聯賽營運系統 (`app/services/league_service.py`)
+*   **排程**: 每日 00:00 自動生成賽程 (Round-Robin + 擴充配對)。
+*   **模擬**: 每日 19:00 鎖定名單並執行比賽，更新戰績與聲望。
+*   **球探**: 每日自動扣除資金並生成待簽球員。
 
 ---
 
-## 🛠 技術架構 (Tech Stack)
+## 📊 大數據驗證 (Big Data Verification)
 
-*   **Backend**: Python 3.13 (Flask)
-*   **Database**: MySQL 9.0
-*   **Data Analysis**: Polars, Pandas, Apache Parquet
-*   **Frontend**: HTML5, CSS3, Jinja2 Templates
-*   **ORM**: SQLAlchemy
+為了確保數值模型的穩定性，專案包含一套完整的測試工具 (`tests/`)。
+
+*   **球員生成測試**: 
+    *   生成 **1 億筆 (100M)** 球員資料。
+    *   驗證身高分佈誤差 < 0.02%。
+    *   驗證稀有度 (SSR~G) 機率收斂。
+*   **比賽平衡測試**:
+    *   模擬 **1200 萬場** 比賽。
+    *   分析勝率分佈、分差常態分佈、Pace 與真實命中率。
+    *   產出 Markdown 格式的 KPI 驗收報告。
+
+---
+
+## 🚀 安裝與執行 (Installation)
+
+### 前置需求
+*   Python 3.13+
+*   Node.js 18+
+*   MySQL 8.0+ (Optional, default uses SQLite)
+*   Stable Diffusion WebUI (Optional, for image generation)
+
+### 1. 後端設定
+```bash
+# 1. Clone 專案
+git clone https://github.com/your-repo/ASBL-Basketball-Manager.git
+cd ASBL-Basketball-Manager
+
+# 2. 建立虛擬環境
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 3. 安裝依賴
+pip install -r requirements.txt
+
+# 4. 初始化資料庫
+python scripts/init_db.py
+
+# 5. 生成測試用的 CPU 球隊 (填充聯賽)
+python scripts/generate_cpu_teams.py
+
+# 6. 啟動伺服器
+python run.py
+```
+
+### 2. 前端設定
+```bash
+cd frontend
+
+# 1. 安裝依賴
+npm install
+
+# 2. 啟動開發伺服器
+npm run dev
+```
+
+瀏覽器開啟 `http://localhost:5173` 即可進入遊戲。
+
+---
 
 ## 📂 目錄結構 (Directory Structure)
 
 ASBL-Basketball-Manager/
-├─ app/                                   # 核心應用程式目錄
-│  ├─ models/                             # [資料庫模型層] 定義 SQL Table 結構
-│  │  ├─ __init__.py                      # 匯出 User, Team, Player, Contract, NameLibrary 方便引用
-│  │  ├─ contract.py                      # (保留) 若合約邏輯過於複雜可獨立，目前定義在 player.py 內
-│  │  ├─ match.py                         # 定義比賽賽程 (Match) 與比賽數據紀錄 (MatchStats)
-│  │  ├─ player.py                        # 定義球員 (Player) 基本資料、JSON 詳細數據與合約 (Contract)
-│  │  ├─ system.py                        # 定義系統輔助資料表，如姓名庫 (NameLibrary)
-│  │  ├─ team.py                          # (保留) 若球隊邏輯複雜可獨立，目前定義在 user.py 內
-│  │  └─ user.py                          # 定義使用者 (User) 帳號驗證與球隊 (Team) 資金/聲望
-│  │
-│  ├─ routes/                             # [API 路由層] 處理 HTTP 請求
-│  │  ├─ __init__.py
-│  │  └─ auth.py                          # 認證 API: 處理註冊 (/register) 與登入 (/login)，並自動建立球隊
-│  │
-│  ├─ services/                           # [業務邏輯層] 處理複雜運算，不直接碰觸 HTTP
-│  │  ├─ match_engine/                    # >> 比賽模擬引擎 (Level 4 Simulation) <<
-│  │  │  ├─ systems/                      # [引擎子系統] 負責特定領域的邏輯判斷 (Config Driven)
-│  │  │  │  ├─ init.py
-│  │  │  │  ├─ attribution.py             # [歸屬判定系統] 決定誰投籃、誰抓籃板、誰助攻 (依據權重與屬性)
-│  │  │  │  ├─ play_logic.py              # (預留) 戰術邏輯
-│  │  │  │  ├─ stamina.py                 # [體力系統] 計算體力流失/回復，並動態更新屬性懲罰係數
-│  │  │  │  └─ substitution.py            # [換人系統] 執行自動換人、處理犯滿離場與時間重分配
-│  │  │  ├─ utils/                        # [引擎工具]
-│  │  │  │  ├─ init.py
-│  │  │  │  ├─ calculator.py              # [數值計算器] 處理屬性加總、遞迴解析 Config、命中率公式計算
-│  │  │  │  └─ rng.py                     # [隨機亂數] 極致效能優化的 RNG 類別 (綁定 random 底層函式)
-│  │  │  ├─ init.py
-│  │  │  ├─ core.py                       # 引擎核心: 控制比賽流程 (跳球 -> 節次 -> 回合 -> 結算)
-│  │  │  ├─ service.py                    # 橋接服務: 負責 DB 資料 <-> Engine 物件轉換
-│  │  │  └─ structures.py                 # [引擎專用結構] EnginePlayer/EngineTeam (使用 slots 優化效能)
-│  │  │
-│  │  ├─ init.py
-│  │  ├─ player_generator.py              # 球員生成器: 產生符合常態分佈的身高、位置、SSR~G 級能力值 (Spec v3.3)
-│  │  └─ team_creator.py                  # 球隊組建器: 呼叫生成器湊滿 15 人，並檢核陣容完整性 (如至少2個PG)
-│  ├─ templates/                          # (目前無內容)
-│  ├─ utils/
-│  │  └─ game_config_loader.py            # [設定載入器] Singleton 模式讀取 YAML，支援環境變數路徑
-│  └─ __init__.py
+├── app/                                      # [後端核心] Flask 應用程式主目錄
+│   ├── models/                               # [資料模型層] SQLAlchemy ORM 定義 (Schema)
+│   │   ├── __init__.py                       # 匯出所有模型方便引用
+│   │   ├── contract.py                       # 合約系統 (薪資、年限、角色定位)
+│   │   ├── league.py                         # 聯賽系統 (賽季 Season、賽程 Schedule)
+│   │   ├── match.py                          # 比賽數據 (Match, TeamStats, PlayerStats/BoxScore)
+│   │   ├── player.py                         # 球員核心 (基本資料、JSON 詳細屬性、成長紀錄)
+│   │   ├── scout.py                          # 球探系統 (待簽名單紀錄)
+│   │   ├── system.py                         # 系統輔助表 (多國語系姓名庫)
+│   │   ├── tactics.py                        # 戰術配置 (登錄名單、戰術參數)
+│   │   ├── team.py                           # 球隊經營 (資金、聲望、戰績)
+│   │   └── user.py                           # 使用者帳號 (權限、登入紀錄)
+│   │
+│   ├── routes/                               # [API 路由層] 處理 HTTP 請求與回應
+│   │   ├── auth.py                           # 認證 API (註冊/登入、開局球隊建立)
+│   │   ├── game.py                           # 比賽 API (單場模擬觸發)
+│   │   ├── league.py                         # 聯賽 API (賽程查詢、賽季資訊)
+│   │   ├── scout.py                          # 球探 API (搜尋、簽約)
+│   │   └── team.py                           # 球隊 API (儀表板、名單管理)
+│   │
+│   ├── services/                             # [業務邏輯層] 封裝複雜運算與核心機制
+│   │   ├── match_engine/                     # >> L4 高擬真比賽模擬引擎 (核心亮點) <<
+│   │   │   ├── systems/                      # [子系統] 特定領域邏輯 (Config Driven)
+│   │   │   │   ├── attribution.py            # 數據歸屬判定 (籃板/助攻/出手權重)
+│   │   │   │   ├── stamina.py                # 體力系統 (消耗/恢復/年齡衰退)
+│   │   │   │   └── substitution.py           # 換人系統 (自動輪替/犯滿重分配)
+│   │   │   ├── utils/                        # [引擎工具]
+│   │   │   │   ├── calculator.py             # 數值計算器 (屬性加總、命中率公式)
+│   │   │   │   └── rng.py                    # 高效能隨機數生成器
+│   │   │   ├── core.py                       # 引擎核心 (狀態機、PBP 流程控制)
+│   │   │   ├── service.py                    # 適配器 (DB Model <-> Engine Struct 轉換)
+│   │   │   └── structures.py                 # 引擎專用資料結構 (使用 __slots__ 優化記憶體)
+│   │   │
+│   │   ├── image_generation_service.py       # AI 圖片生成服務 (Stable Diffusion 串接)
+│   │   ├── league_service.py                 # 聯賽營運 (每日排程、配對、戰績結算)
+│   │   ├── player_generator.py               # 球員生成器 (常態分佈演算法、姓名生成)
+│   │   ├── scout_service.py                  # 球探邏輯 (每日刷新、資金扣除)
+│   │   └── team_creator.py                   # 球隊組建器 (開局陣容檢核邏輯)
+│   │
+│   ├── utils/                                # [通用工具]
+│   │   └── game_config_loader.py             # 設定檔載入器 (Singleton 模式)
+│   ├── scheduler.py                          # [排程系統] APScheduler (每日模擬任務)
+│   └── __init__.py                           # App Factory 初始化
 │
-├─ config/
-│  └─ game_config.yaml                    # [遊戲平衡檔] 定義所有機率、權重、薪資公式 (Spec v2.5 & v1.6)
+├── config/                                   # [配置層]
+│   └── game_config.yaml                      # 遊戲核心平衡參數 (機率、權重、公式係數)
 │
-├─ docs/                                  # [專案文件]
-│  ├─ DEV_JOURNAL_BigData_Architecture.md # [架構日誌] 記錄從單機到 ETL Pipeline 的演進
-│  ├─ team_creator_test_report_*.md       # [驗收報告] 開隊與比賽模擬測試報告
-│  └─ KPI_Validation_Report_v2_6.md       # [驗收報告] 1億筆資料生成的統計結果 (極端值、分佈檢核)
-├─ scripts/
-│  ├─ utils/
-│  │  └─ tree.py                          # 專案檔案樹產生器
-│  ├─ __init__.py
-│  ├─ init_db.py                          # 舊檔案
-│  ├─ debug_team_generation.py            # [New] 球隊生成除錯工具
-│  ├─ simulate_match_no_db.py             # 測試建立兩支球隊並且執行比賽
-│  ├─ terminal.py                         # 清空終端顯示
-│  └─ test_auth.py                        # 舊檔案
-├─ tests/
-│  ├─ big_data/                           # >> 大數據驗證架構 (ETL Pipeline) <<
-│  │  ├─ output/                          # [資料輸出] (自動建立) 存放生成的 .parquet 檔案
-│  │  │  ├─ dry_run/                      # 試跑產生的暫存檔
-│  │  │  └─ run_v2_6_dataset_*/           # 正式測試產生的分片資料集
-│  │  │
-│  │  ├─ logs/                            # [執行紀錄] (自動建立) 存放 execution_history.log
-│  │  │
-│  │  ├─ __init__.py
-│  │  ├─ test_config.yaml                 # [測試配置] 設定 Worker 數量、Batch Size、輸出路徑
-│  │  │
-│  │  ├─ verify_generator_integration.py  # [生產者 (Producer)] **主執行腳本**
-│  │  │                                   # 1. 負責啟動 Multiprocessing Pool
-│  │  │                                   # 2. 呼叫 PlayerGenerator 生成數據
-│  │  │                                   # 3. 將數據寫入 Parquet 檔案 (ETL)
-│  │  │
-│  │  ├─ verify_kpi_v2_6.py               # [驗證者 (Validator)] **KPI 驗收腳本**
-│  │  │                                   # 1. 使用 Polars 高速讀取 Parquet
-│  │  │                                   # 2. 執行統計分析 (身高分佈、等級機率、極端值)
-│  │  │                                   # 3. 輸出 Markdown 報告與 Log
-│  │  │
-│  │  ├─ analyze_data.py                  # [檢視器 (Viewer)]
-│  │  │                                   # 使用 Pandas 快速預覽 dry_run.parquet 的內容與欄位
-│  │  │
-│  │  └─ check_crash_data.py              # [災難恢復 (Recovery)]
-│  │                                      # 若測試中斷，此腳本可掃描 output 目錄，檢查哪些 Parquet 檔是完好的
-│  └─ __init__.py
-├── ASBL_Match_Engine_Specification.md # [Updated] 比賽引擎規格書 (v2.1)
-├── ASBL_Player_System_Specification.md # 球員系統規格書 (v3.3)
-├── config.py                # App Configuration (Flask 設定)
-└── run.py                   # Entry Point (程式入口)
+├── frontend/                                 # [前端] React + TypeScript + Vite
+│   ├── src/
+│   │   ├── components/                       # UI 組件 (Roster, Tactics, MatchModal...)
+│   │   ├── App.tsx                           # 主應用程式與路由
+│   │   └── ...
+│   ├── tailwind.config.js                    # 樣式配置
+│   └── vite.config.ts                        # 建置配置 (含 API Proxy)
+│
+├── scripts/                                  # [維運腳本]
+│   ├── utils/                                # 腳本輔助工具
+│   ├── batch_generate_images.py              # 批次補生成球員卡圖片
+│   ├── generate_cpu_teams.py                 # 批量生成 NPC 球隊 (填充聯賽)
+│   ├── init_db.py                            # 資料庫初始化
+│   └── terminal.py                           # 終端機工具
+│
+├── tests/                                    # [大數據驗證] ETL 測試管線
+│   ├── match_bigdata_test/                   # 比賽引擎平衡性測試
+│   │   └── run_core_bigdata_test.py          # 執行千萬場次模擬與數據收集
+│   ├── player_generator_big_data/            # 球員生成分佈驗證
+│   │   ├── analyzer.py                       # 統計分析器 (Polars)
+│   │   └── run_test.py                       # 執行一億筆生成測試
+│   └── team_bigdata_test/                    # 隊伍生成壓力測試
+│
+├── tools/                                    # [開發輔助工具]
+│   ├── ai_card_generator.py                  # AI 繪圖測試工具
+│   └── code_merger.py                        # 代碼合併工具 (用於 LLM Context)
+│
+├── ASBL_AI_Card_Generation_Specification.md  # [規格書] AI 球員卡生成規範
+├── ASBL_Database_Schema.md                   # [規格書] 資料庫架構設計 (ER Diagram)
+├── ASBL_League_Simulation_Design.md          # [規格書] 大數據模擬驗證設計
+├── ASBL_League_System_Specification.md       # [規格書] 聯賽營運系統規範
+├── ASBL_Match_Engine_Specification.md        # [規格書] 比賽引擎核心邏輯 (v2.4)
+├── ASBL_Player_System_Specification.md       # [規格書] 球員生成與成長系統 (v3.5)
+├── ASBL_Tactics_System_Specification.md      # [規格書] 戰術與陣容管理規範
+├── config.py                                 # Flask 環境設定 (Secret Key, DB URI)
+├── manage.py                                 # 手動觸發排程指令
+├── requirements.txt                          # Python 依賴套件
+└── run.py                                    # 程式進入點 (Entry Point)
+
+---
+
+## 📝 開發規範 (Development Standards)
+
+*   **註解**: 所有程式碼需包含清楚明確的繁體中文註解。
+*   **檔案標頭**: 每個檔案首行需標註專案路徑與檔名。
+*   **配置分離**: 禁止在程式碼中 Hardcode 數值，必須使用 `GameConfigLoader` 讀取 YAML。
+*   **靜態方法**: 工具類方法應使用 `@staticmethod` 或 `@classmethod` 以利重用。
+
+---
+
+## 📜 授權 (License)
+
+MIT License. Copyright (c) 2026 ASBL Dev Team.
+```

@@ -1,7 +1,6 @@
 // frontend/src/App.tsx
 
 import React, { useState, useEffect } from 'react';
-// [新增] 引入 PlayerRoster 組件
 import PlayerRoster from './components/PlayerRoster'; 
 import TacticsPage from './components/TacticsPage';
 import ScoutPage from './components/ScoutPage';
@@ -10,7 +9,7 @@ import SchedulesPage from './components/SchedulesPage';
 import { 
   Users, Trophy, Calendar, ClipboardList, Search, 
   ShoppingBag, Repeat, MessageSquare, BookOpen, 
-  LogOut, User as UserIcon
+  LogOut, Hammer, ExternalLink
 } from 'lucide-react';
 
 // --- 型別定義 ---
@@ -46,21 +45,21 @@ const Sidebar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
     { id: 'scouts', label: '球探', icon: <Search size={18} /> },
     { id: 'schedules', label: '賽程', icon: <Calendar size={18} /> },
     { id: 'tactics', label: '戰術', icon: <ClipboardList size={18} /> },
-    { id: 'market', label: '市場', icon: <ShoppingBag size={18} /> },
-    { id: 'trades', label: '交換', icon: <Repeat size={18} /> },
     { id: 'community', label: '社群', icon: <MessageSquare size={18} /> },
     { id: 'guide', label: '指南', icon: <BookOpen size={18} /> },
+    { id: 'market', label: '市場', icon: <ShoppingBag size={18} /> },
+    { id: 'trades', label: '交換', icon: <Repeat size={18} /> },
   ];
 
   return (
-    <aside className="w-64 bg-asbl-panel border-r border-black/20 flex flex-col p-4 text-[#1f093a] hidden md:flex">
+    <aside className="w-48 bg-asbl-panel border-r border-black/20 flex flex-col p-4 text-[#1f093a] hidden md:flex">
       <div className="text-xs font-bold tracking-wider mb-2 text-[#2b0c60] uppercase">選單</div>
       <nav className="flex-1 space-y-1">
         {menuItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-lg font-medium transition-all
               ${activeTab === item.id 
                 ? 'bg-white/40 border border-black/20 text-[#14043a] font-bold shadow-sm' 
                 : 'bg-white/20 border border-transparent hover:bg-white/30 hover:border-black/10'
@@ -368,6 +367,58 @@ const AuthPage = ({ onLogin }: { onLogin: (user: UserState) => void }) => {
   );
 };
 
+// --- 元件：待開發頁面 ---
+const UnderDevelopmentPage = ({ title }: { title: string }) => (
+  <div className="h-full flex flex-col items-center justify-center text-white/60 gap-4 animate-in fade-in duration-500">
+    <div className="p-6 bg-white/10 rounded-full border border-white/10 shadow-xl">
+      <Hammer size={48} className="text-asbl-pink" />
+    </div>
+    <div className="text-center">
+      <h2 className="text-2xl font-bold text-white mb-2">{title}</h2>
+      <p className="text-sm font-mono">此功能正在積極開發中，敬請期待！</p>
+    </div>
+  </div>
+);
+
+  // --- 元件：社群頁面 (配色優化版) ---
+  const CommunityPage = () => (
+    <div className="h-full flex flex-col items-center justify-center p-4 animate-in fade-in duration-500">
+      {/* 卡片容器：深色玻璃質感，提升對比度 */}
+      <div className="bg-black/20 backdrop-blur-md border border-white/10 p-10 md:p-14 rounded-3xl shadow-2xl max-w-lg w-full text-center flex flex-col items-center gap-8">
+        
+        {/* Icon 區塊：增加藍紫色光暈 */}
+        <div className="relative group">
+          <div className="absolute inset-0 bg-[#5865F2] rounded-full blur-2xl opacity-40 group-hover:opacity-60 transition-opacity duration-500"></div>
+          <div className="relative p-5 bg-[#5865F2] rounded-full shadow-xl z-10 ring-4 ring-white/10">
+             <MessageSquare size={40} className="text-white" />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h2 className="text-3xl font-black text-white tracking-tight drop-shadow-md">
+            加入 ASBL 官方社群
+          </h2>
+          <p className="text-blue-50/80 leading-relaxed font-medium text-sm md:text-base">
+            歡迎加入我們的 Discord 伺服器！<br/>
+            與其他球隊經理交流戰術、分享球員評價，<br/>
+            並獲取最新的遊戲更新資訊與公告。
+          </p>
+        </div>
+
+        {/* 按鈕：全寬度、懸停上浮效果 */}
+        <a 
+          href="https://discord.gg/wHRHCjZutu" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="w-full py-3.5 bg-[#5865F2] hover:bg-[#4752C4] text-white rounded-xl font-bold text-lg transition-all shadow-lg shadow-[#5865F2]/20 hover:shadow-[#5865F2]/50 hover:-translate-y-1 active:translate-y-0 active:scale-95 flex items-center justify-center gap-2 group"
+        >
+          <span>前往 Discord 伺服器</span>
+          <ExternalLink size={20} className="group-hover:rotate-12 transition-transform duration-300" />
+        </a>
+      </div>
+    </div>
+  );
+
 // --- 主程式入口 ---
 function App() {
   const [user, setUser] = useState<UserState | null>(null);
@@ -408,7 +459,14 @@ function App() {
           {activeTab === 'teams' && <TeamsPage />}
           {activeTab === 'scouts' && <ScoutPage userId={user.id} />}
           {activeTab === 'schedules' && <SchedulesPage teamId={user.teamId} />} 
-          {/* 其他頁面... */}
+          
+          {/* 社群頁面 */}
+          {activeTab === 'community' && <CommunityPage />}
+
+          {/* 待開發頁面 */}
+          {activeTab === 'market' && <UnderDevelopmentPage title="自由市場 (Market)" />}
+          {activeTab === 'trades' && <UnderDevelopmentPage title="球員交換 (Trades)" />}
+          {activeTab === 'guide' && <UnderDevelopmentPage title="遊戲指南 (Guide)" />}
         </main>
       </div>
     </div>

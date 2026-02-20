@@ -1,7 +1,7 @@
 // frontend/src/components/PlayerRoster.tsx
 // 專案路徑: frontend/src/components/PlayerRoster.tsx
 // 模組名稱: 球員名單列表組件 (Final)
-// 描述: 包含列表排序、數據聚合以及詳細資訊彈窗 (Modal)
+// 描述: 包含列表排序、數據聚合以及詳細資訊彈窗 (Modal)，採用左右分欄佈局優化空間利用
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, ArrowUpDown, ArrowUp, ArrowDown, Activity, Zap, Shield, X, Dumbbell } from 'lucide-react';
@@ -33,7 +33,7 @@ interface PlayerData {
   height: number;
   age: number;
   rating: number;
-  training_points: number; // 新增
+  training_points: number;
   stats: PlayerStats;
 }
 
@@ -97,11 +97,45 @@ const calculateAverages = (p: PlayerData) => {
   return { phyAvg: phySum / 4, offAvg: offSum / 9, defAvg: defSum / 5 };
 };
 
-// --- 子組件：詳細資訊 Modal ---
+// --- 子組件：球員頭像 (處理圖片載入失敗) ---
+const PlayerAvatar = ({ 
+  playerId, 
+  name, 
+  className, 
+  iconSize = 24 
+}: { 
+  playerId: string | number, 
+  name: string, 
+  className?: string, 
+  iconSize?: number 
+}) => {
+  const [imgError, setImgError] = useState(false);
+  const imgUrl = `/assets/cards/player_${playerId}.png`;
+
+  return (
+    <div className={`bg-gray-800 flex items-center justify-center overflow-hidden shrink-0 relative ${className}`}>
+      {!imgError ? (
+        <img
+          src={imgUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+          loading="lazy"
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center text-gray-600 gap-2">
+          <User size={iconSize} />
+          <span className="text-[10px] font-mono opacity-50">NO IMAGE</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- 子組件：詳細資訊 Modal (優化版佈局) ---
 const PlayerDetailModal = ({ player, onClose }: { player: PlayerData, onClose: () => void }) => {
   if (!player) return null;
 
-  // 定義可訓練能力 (10項)
   const trainableStats = [
     { label: '投籃技巧', value: player.stats.offense.accuracy, cat: 'offense' },
     { label: '射程', value: player.stats.offense.range, cat: 'offense' },
@@ -116,77 +150,132 @@ const PlayerDetailModal = ({ player, onClose }: { player: PlayerData, onClose: (
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      {/* 
+         Layout Strategy: 
+         - Max Width: 4xl (wider to fit side-by-side)
+         - Flex Row on Desktop (md), Flex Col on Mobile
+         - Max Height: 90vh (prevent overflow)
+      */}
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
         
-        {/* Header: 球員卡片風格 */}
-        <div className="relative p-6 bg-gradient-to-br from-gray-900 to-gray-800 text-white flex gap-6 items-center shrink-0">
-          <button onClick={onClose} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors">
-            <X size={24} />
-          </button>
+        {/* --- LEFT COLUMN: Card Visuals (Dark Theme) --- */}
+        <div className="relative p-6 bg-gradient-to-b from-gray-900 to-gray-800 text-white flex flex-col items-center gap-4 shrink-0 md:w-80 overflow-y-auto md:overflow-visible border-r border-gray-700">
           
-          {/* 圖像預留區 */}
-          <div className="w-24 h-24 rounded-full bg-gray-700 border-4 border-white/10 flex items-center justify-center shrink-0 shadow-lg">
-            <User size={40} className="text-gray-500" />
+          {/* Image Container */}
+          <div className="relative w-48 md:w-full aspect-[3/4] rounded-xl border-4 border-white/10 shadow-2xl bg-black overflow-hidden group">
+            <PlayerAvatar 
+              playerId={player.id} 
+              name={player.name} 
+              className="w-full h-full" 
+              iconSize={64}
+            />
+            {/* Glossy Effect */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-white/5 to-transparent pointer-events-none"></div>
           </div>
           
-          {/* 基本資料 */}
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-1">
-              <span className={`px-2 py-0.5 rounded text-xs font-black border ${getGradeStyle(player.grade)}`}>
-                {player.grade}
+          {/* Grade & Rating Bar */}
+          <div className="flex w-full items-stretch rounded-lg overflow-hidden shadow-lg mt-2">
+            <div className={`flex-1 flex items-center justify-center py-2 px-2 ${getGradeStyle(player.grade)} border-0`}>
+              <span className="text-2xl font-black tracking-tighter">{player.grade}</span>
+            </div>
+            <div className="flex-[1.5] bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center py-1 px-2 border-l border-white/10">
+              <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">RATING</span>
+              <span className={`text-2xl font-black font-mono leading-none ${player.rating >= 1200 ? 'text-amber-400' : 'text-white'}`}>
+                {player.rating}
               </span>
-              <span className={`font-black text-xl ${getPosColor(player.position)}`}>{player.position}</span>
-              <h2 className="text-2xl font-bold">{player.name}</h2>
-              <span className="text-sm text-gray-400 font-mono bg-black/30 px-2 py-0.5 rounded">{player.nationality}</span>
-            </div>
-            
-            <div className="flex gap-6 text-sm text-gray-300 mt-2">
-              <div>年齡: <span className="text-white font-bold font-mono">{player.age}</span></div>
-              <div>身高: <span className="text-white font-bold font-mono">{player.height} cm</span></div>
-              <div>定位: <span className="text-white font-bold">{ROLE_TRANSLATION[player.role] || player.role}</span></div>
-            </div>
-
-            {/* 訓練點數 */}
-            <div className="mt-4 inline-flex items-center gap-2 bg-asbl-violet/20 px-3 py-1.5 rounded-lg border border-asbl-violet/50">
-              <Dumbbell size={16} className="text-asbl-violet" />
-              <span className="text-xs text-asbl-violet font-bold uppercase">現有訓練點數</span>
-              <span className="text-white font-black font-mono text-lg ml-1">{player.training_points ?? 0}</span>
             </div>
           </div>
+
+          {/* Mobile Close Button (Visible only on small screens if needed, but we use the main one) */}
         </div>
 
-        {/* Body: 可訓練能力 */}
-        <div className="p-6 overflow-y-auto bg-gray-50 flex-1">
-          <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <Activity size={16} /> 可訓練能力 (Trainable Stats)
-          </h3>
+        {/* --- RIGHT COLUMN: Info & Stats (Light Theme) --- */}
+        <div className="flex-1 flex flex-col bg-gray-50 min-w-0">
           
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {trainableStats.map((stat, idx) => (
-              <div key={idx} className="bg-white border border-gray-200 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm hover:border-asbl-violet/50 transition-colors group">
-                <span className={`text-xs font-bold mb-1 ${stat.cat === 'offense' ? 'text-orange-600' : 'text-green-600'}`}>
-                  {stat.label}
-                </span>
-                <span className="text-2xl font-black font-mono text-gray-800 group-hover:text-asbl-violet">
-                  {stat.value}
+          {/* Header Area */}
+          <div className="p-6 pb-4 bg-white border-b border-gray-200 relative">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors">
+              <X size={24} />
+            </button>
+
+            {/* Name & Pos */}
+            <div className="flex items-end gap-3 mb-3 pr-8">
+              <span className={`font-black text-4xl leading-none ${getPosColor(player.position)}`}>{player.position}</span>
+              <h2 className="text-3xl font-bold text-gray-900 leading-none">{player.name}</h2>
+              <span className="text-xs font-bold text-gray-500 font-mono bg-gray-100 px-2 py-0.5 rounded border border-gray-200 mb-1">
+                {player.nationality}
+              </span>
+            </div>
+
+            {/* Info Row (Compact) */}
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600 mt-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400 uppercase">Age</span>
+                <span className="font-bold font-mono text-gray-900 text-lg">{player.age}</span>
+              </div>
+              <div className="w-px h-8 bg-gray-200 hidden sm:block"></div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400 uppercase">Height</span>
+                <span className="font-bold font-mono text-gray-900 text-lg">{player.height} <span className="text-xs">cm</span></span>
+              </div>
+              <div className="w-px h-8 bg-gray-200 hidden sm:block"></div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-gray-400 uppercase">Role</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-bold border ${getRoleStyle(player.role)}`}>
+                  {ROLE_TRANSLATION[player.role] || player.role}
                 </span>
               </div>
-            ))}
+            </div>
+
+            {/* Training Points Bar */}
+            <div className="mt-5 flex items-center justify-between bg-asbl-violet/5 px-4 py-3 rounded-xl border border-asbl-violet/20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-lg text-asbl-violet shadow-sm border border-asbl-violet/10">
+                  <Dumbbell size={18} />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[10px] text-asbl-violet font-bold uppercase tracking-wider">Available Points</span>
+                  <span className="text-gray-900 font-black font-mono text-xl leading-none">{player.training_points ?? 0}</span>
+                </div>
+              </div>
+              <button className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-asbl-violet hover:bg-asbl-violet/90 transition-colors shadow-md shadow-asbl-violet/20">
+                前往訓練
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Footer: 按鈕 */}
-        <div className="p-4 bg-white border-t border-gray-200 shrink-0 flex justify-end gap-3">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">
-            關閉
-          </button>
-          <button className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-asbl-violet to-asbl-blue hover:opacity-90 shadow-lg shadow-asbl-violet/30 flex items-center gap-2 transform active:scale-95 transition-all">
-            <Dumbbell size={18} />
-            前往訓練
-          </button>
-        </div>
+          {/* Stats Area (Scrollable) */}
+          <div className="p-6 overflow-y-auto flex-1">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Activity size={14} /> Trainable Stats
+            </h3>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+              {trainableStats.map((stat, idx) => (
+                <div key={idx} className="bg-white border border-gray-200 p-3 rounded-xl flex flex-col items-center justify-center shadow-sm hover:border-asbl-violet/50 hover:shadow-md transition-all group">
+                  <span className={`text-[10px] font-bold mb-1 ${stat.cat === 'offense' ? 'text-orange-600' : 'text-green-600'}`}>
+                    {stat.label}
+                  </span>
+                  <span className="text-2xl font-black font-mono text-gray-800 group-hover:text-asbl-violet">
+                    {stat.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
 
+          {/* Footer */}
+          <div className="p-4 bg-gray-50 border-t border-gray-200 shrink-0 flex justify-end">
+            <button 
+              onClick={onClose} 
+              className="px-6 py-2 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-200 hover:text-gray-900 transition-colors"
+            >
+              關閉視窗
+            </button>
+          </div>
+
+        </div>
       </div>
     </div>
   );
@@ -300,14 +389,25 @@ const PlayerRoster: React.FC<{ teamId: number }> = ({ teamId }) => {
                     </td>
                     <td className={`px-3 py-3 text-center font-black text-base ${getPosColor(p.position)}`}>{p.position}</td>
                     <td className="px-4 py-3">
-                      {/* 點擊姓名開啟 Modal */}
-                      <button 
-                        onClick={() => setSelectedPlayer(p)}
-                        className="text-left font-bold text-gray-900 hover:text-asbl-violet hover:underline decoration-2 underline-offset-2 transition-all"
-                      >
-                        {p.name}
-                      </button>
-                      <div className="text-[10px] text-gray-500 uppercase font-mono">{p.nationality}</div>
+                      <div className="flex items-center gap-3">
+                        {/* 列表中的小頭像 (保持圓形) */}
+                        <PlayerAvatar 
+                          playerId={p.id} 
+                          name={p.name} 
+                          className="w-10 h-10 rounded-full border border-gray-200 shadow-sm"
+                          iconSize={16} 
+                        />
+                        <div>
+                          {/* 點擊姓名開啟 Modal */}
+                          <button 
+                            onClick={() => setSelectedPlayer(p)}
+                            className="text-left font-bold text-gray-900 hover:text-asbl-violet hover:underline decoration-2 underline-offset-2 transition-all"
+                          >
+                            {p.name}
+                          </button>
+                          <div className="text-[10px] text-gray-500 uppercase font-mono">{p.nationality}</div>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-center font-mono text-gray-700">{p.age}</td>
                     <td className="px-3 py-3 text-center font-mono text-gray-700">{p.height} <span className="text-[10px] text-gray-400">cm</span></td>

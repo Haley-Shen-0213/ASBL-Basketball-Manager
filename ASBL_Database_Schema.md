@@ -247,6 +247,7 @@ erDiagram
 | `grade` | String(5) | Nullable | **當時等級** (快照，避免球員成長後歷史數據失真) |
 | `position` | String(10)| Nullable | **當時位置** (快照) |
 | `role` | String(20)| Nullable | **當時角色** (快照) |
+| `is_played` | Boolean | Default False | 是否出賽 |
 | `seconds_played`| Float | Default 0.0 | 上場秒數 |
 | `is_starter` | Boolean | Default False | 是否先發 |
 | `pts` | Integer | Default 0 | 得分 |

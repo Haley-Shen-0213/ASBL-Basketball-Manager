@@ -1,6 +1,6 @@
 # app/routes/auth.py
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from datetime import datetime
 from app import db
 from app.models.user import User
@@ -10,6 +10,7 @@ from app.services.team_creator import TeamCreator
 from app.services.player_generator import PlayerGenerator
 from app.services.league_service import LeagueService
 from app.utils.game_config_loader import GameConfigLoader
+from app.services.image_generation_service import ImageGenerationService
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -92,6 +93,16 @@ def register():
 
         # --- Final: 提交所有變更 ---
         db.session.commit()
+
+        # --- [New] Step 6: 觸發背景圖片生成 ---
+        # 傳入 current_app._get_current_object() 以便在執行緒中使用 App Context
+        try:
+            ImageGenerationService.start_background_generation(
+                current_app._get_current_object(), 
+                player_ids
+            )
+        except Exception as img_err:
+            print(f"⚠️ [Auth] 觸發圖片生成失敗 (不影響註冊): {img_err}")
         
         return jsonify({
             'message': '註冊成功！球隊已建立並加入聯賽體系。',
