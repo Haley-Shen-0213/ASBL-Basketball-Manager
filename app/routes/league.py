@@ -1,5 +1,6 @@
 # app/routes/league.py
 from flask import Blueprint, jsonify, request
+from sqlalchemy import or_, and_
 from app.models.league import Season, Schedule
 from app.models.team import Team
 from app.models.match import Match, MatchPlayerStat
@@ -27,60 +28,138 @@ def get_season_info():
 
 @league_bp.route('/schedule', methods=['GET'])
 def get_schedule():
-    """取得賽程列表"""
     season_id = request.args.get('season_id')
     day = request.args.get('day')
     
-    if not season_id:
-        active_season = Season.query.filter_by(is_active=True).first()
-        if not active_season:
-            return jsonify([])
-        season_id = active_season.id
+    if not season_id or not day:
+        return jsonify({'error': 'Missing params'}), 400
     
-    query = Schedule.query.filter_by(season_id=season_id)
-    
-    if day:
-        query = query.filter_by(day=day)
-    else:
-        active_season = Season.query.get(season_id)
-        if active_season:
-            query = query.filter_by(day=active_season.current_day)
-
-    schedules = query.order_by(Schedule.game_type, Schedule.id).all()
+    target_day = int(day)
+    schedules = Schedule.query.filter_by(season_id=season_id, day=target_day).all()
     
     result = []
+    
+    # 為了優化效能，這裡可以預先撈取 Team 資料，但為了邏輯清晰先保持逐筆處理
+    # 若有效能問題，應改為 Batch Query
+
     for s in schedules:
         home = Team.query.get(s.home_team_id)
         away = Team.query.get(s.away_team_id)
+        match = Match.query.get(s.match_id) if s.match_id else None
         
-        match_data = None
-        match_id = None
-        if s.match_id:
-            match = Match.query.get(s.match_id)
-            if match:
-                match_id = match.id
-                match_data = {
-                    'home_score': match.home_score,
-                    'away_score': match.away_score,
-                    'is_ot': match.is_ot
-                }
+        # [修正 5] 計算「該日之前」的歷史戰績 (Historical Record)
+        # 僅針對正式聯賽 (game_type=1) 計算例行賽戰績
+        home_wins = 0
+        home_losses = 0
+        away_wins = 0
+        away_losses = 0
         
-        result.append({
+        if s.game_type == 1:
+            # 計算主隊在 target_day 之前的戰績
+            # 邏輯: 找出所有該隊參與且已完賽，並且 day < target_day 的比賽
+            home_stats = db.session.query(Schedule, Match)\
+                .join(Match, Schedule.match_id == Match.id)\
+                .filter(
+                    Schedule.season_id == season_id,
+                    Schedule.day < target_day,
+                    Schedule.game_type == 1,
+                    Schedule.status == 'FINISHED',
+                    or_(Schedule.home_team_id == home.id, Schedule.away_team_id == home.id)
+                ).all()
+            
+            for sched, m in home_stats:
+                winner_id = m.home_team_id if m.home_score > m.away_score else m.away_team_id
+                if winner_id == home.id:
+                    home_wins += 1
+                else:
+                    home_losses += 1
+
+            # 計算客隊在 target_day 之前的戰績
+            away_stats = db.session.query(Schedule, Match)\
+                .join(Match, Schedule.match_id == Match.id)\
+                .filter(
+                    Schedule.season_id == season_id,
+                    Schedule.day < target_day,
+                    Schedule.game_type == 1,
+                    Schedule.status == 'FINISHED',
+                    or_(Schedule.home_team_id == away.id, Schedule.away_team_id == away.id)
+                ).all()
+                
+            for sched, m in away_stats:
+                winner_id = m.home_team_id if m.home_score > m.away_score else m.away_team_id
+                if winner_id == away.id:
+                    away_wins += 1
+                else:
+                    away_losses += 1
+        
+        item = {
             'id': s.id,
             'day': s.day,
             'game_type': s.game_type,
             'status': s.status,
-            'match_id': match_id, # 回傳 match_id 供前端查詢詳情
+            'match_id': s.match_id,
             'home_team': {
-                'id': home.id,
+                'id': home.id, 
                 'name': home.name,
+                'wins': home_wins,     # 使用歷史戰績
+                'losses': home_losses
             },
             'away_team': {
-                'id': away.id,
+                'id': away.id, 
                 'name': away.name,
+                'wins': away_wins,     # 使用歷史戰績
+                'losses': away_losses
             },
-            'match': match_data
-        })
+            'match': {
+                'home_score': match.home_score,
+                'away_score': match.away_score,
+                'is_ot': match.is_ot
+            } if match else None
+        }
+
+        # [修正 1] 季後賽系列賽資訊處理
+        if s.game_type == 3 and s.series_id:
+            parts = s.series_id.split('_')
+            round_label = "Playoffs"
+            if "R1" in s.series_id: round_label = "Round 1"
+            elif "R2" in s.series_id: round_label = "Conf. Semis"
+            elif "R3" in s.series_id: round_label = "Conf. Finals"
+            elif "Finals" in s.series_id: round_label = "Finals"
+            elif "3rdPlace" in s.series_id: round_label = "3rd Place"
+
+            # 計算系列賽目前比分 (只計算「本場比賽之前」的場次)
+            # 關鍵修正: 增加 Schedule.game_number < s.game_number 條件
+            series_games = db.session.query(Schedule, Match)\
+                .join(Match, Schedule.match_id == Match.id)\
+                .filter(
+                    Schedule.series_id == s.series_id, 
+                    Schedule.status == 'FINISHED',
+                    Schedule.game_number < s.game_number # <--- 修正點：只看這場之前的
+                ).all()
+            
+            series_home_wins = 0
+            series_away_wins = 0
+            
+            for sched, m in series_games:
+                winner_id = m.home_team_id if m.home_score > m.away_score else m.away_team_id
+                
+                # 注意：Schedule 的 home/away 在系列賽中會互換 (主客場輪替)
+                # 但我們在前端顯示時，通常固定顯示該場比賽的主客隊視角
+                # 這裡我們回傳的是「該場比賽(s)的主隊」在系列賽贏了幾場
+                
+                if winner_id == s.home_team_id:
+                    series_home_wins += 1
+                elif winner_id == s.away_team_id:
+                    series_away_wins += 1
+
+            item['series_info'] = {
+                'round_label': round_label,
+                'game_number': s.game_number,
+                'home_wins': series_home_wins,
+                'away_wins': series_away_wins
+            }
+
+        result.append(item)
         
     return jsonify(result)
 

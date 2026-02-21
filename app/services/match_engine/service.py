@@ -1,9 +1,12 @@
 # app/services/match_engine/service.py
 # 模組名稱: 資料庫轉引擎適配器
-# 修正: 移除舊的評級推導邏輯，直接使用資料庫中儲存的正確 grade
+# 修正: 
+# 1. convert_team 新增 tactics 參數以解決 TypeError
+# 2. 根據 tactics.roster_list 過濾出賽名單
 
 from app.models.player import Player
 from app.models.team import Team
+from app.models.tactics import TeamTactics
 from app.services.match_engine.structures import EngineTeam, EnginePlayer
 
 class DBToEngineAdapter:
@@ -26,7 +29,6 @@ class DBToEngineAdapter:
             role = db_player.contract.role
 
         # [修正] 直接讀取資料庫中的等級，不再重新推導
-        # 原本的邏輯會導致高數值球員全部變成 SSR
         grade = db_player.grade if db_player.grade else "G"
 
         return EnginePlayer(
@@ -70,10 +72,30 @@ class DBToEngineAdapter:
         )
 
     @staticmethod
-    def convert_team(db_team: Team) -> EngineTeam:
-        roster = [DBToEngineAdapter.convert_player(p) for p in db_team.players]
+    def convert_team(db_team: Team, tactics: TeamTactics = None) -> EngineTeam:
+        """
+        將 DB Team 轉換為 EngineTeam
+        :param db_team: 資料庫球隊物件
+        :param tactics: (Optional) 戰術設定，用於決定登錄名單
+        """
+        # 1. 先轉換所有球員
+        all_players = [DBToEngineAdapter.convert_player(p) for p in db_team.players]
+        
+        final_roster = all_players
+
+        # 2. 若有傳入戰術設定，則過濾出 Active Roster
+        if tactics and tactics.roster_list:
+            # roster_list 存的是 int ID，EnginePlayer.id 是 str，需轉換比對
+            active_ids = set(tactics.roster_list) # Set for O(1) lookup
+            
+            filtered = [p for p in all_players if int(p.id) in active_ids]
+            
+            # 防呆：如果過濾後沒人 (例如 ID 對不上)，則回退到全部，避免比賽崩潰
+            if filtered:
+                final_roster = filtered
+
         return EngineTeam(
             id=str(db_team.id),
             name=db_team.name,
-            roster=roster
+            roster=final_roster
         )

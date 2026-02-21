@@ -884,3 +884,49 @@
 -   **經濟系統開發**: 著手設計球隊收支、薪資帽運算與自由市場機制。
 
 --
+
+## 📅 2026-02-21 12:00 : 聯賽排程優化與季後賽邏輯實作 (League Scheduling & Playoff Logic)
+
+### ✅ 進度摘要
+本次更新完成了 **聯賽營運系統 (League System)** 的最後一塊拼圖。核心重點在於實作了基於 **蒙地卡羅模擬 (Monte Carlo Simulation)** 的賽程優化演算法，確保賽季賽程的主客場平衡。同時，完善了 **季後賽 (Playoffs)** 的動態樹狀圖生成邏輯，支援 BO3/BO5 賽制與系列賽結算。前端部分，完成了 **賽程頁面 (SchedulesPage)** 與 **比賽詳情 (MatchDetailModal)**，實現了從賽季預覽到單場數據的完整視覺化。
+
+### 🛠️ 技術細節
+
+1.  **聯賽排程與優化 (`app/services/league_service.py`)**
+    -   **賽程生成演算法**:
+        -   實作 `_generate_full_season_schedule`，結合 **標準圓桌法 (Round-Robin)** 與 **多核心蒙地卡羅模擬**。
+        -   **懲罰積分機制**: 定義了連續主/客場的懲罰權重 (Streak Penalty)，透過大量模擬 (預設 3000 萬次) 篩選出積分最低（最平衡）的賽程組合。
+    -   **季後賽邏輯**:
+        -   實作 `_generate_playoff_bracket`，支援 R1 (16強) 到 Finals 的動態對戰組合生成。
+        -   **系列賽管理**: 實作 `_cleanup_finished_series`，當系列賽勝負已分 (如 3-0) 時，自動取消後續無效賽程。
+    -   **賽季重組**: 實作 `_reset_season_and_reseed`，於每一季 Day 1 依據聲望重新分配聯賽層級 (Tier 0, Tier 1...)。
+
+2.  **前端介面實作 (`frontend/src/components/`)**
+    -   **SchedulesPage.tsx**:
+        -   實作每日賽程卡片，區分「例行賽」、「季後賽」與「擴充聯賽」樣式。
+        -   新增 **日期選擇器 (DateSelectorModal)**，方便玩家在 91 天的賽季中快速跳轉。
+        -   整合季後賽系列賽資訊 (如 "Round 1 · G2", "系列賽 1-0")。
+    -   **MatchDetailModal.tsx**:
+        -   實作比賽詳情彈窗，包含 **Box Score** (基礎/進階數據) 與 **Play-by-Play** 文字轉播。
+        -   優化數據呈現，包含球員等級顏色 (`SSR`~`G`) 與先發標記 (`GS`)。
+
+3.  **資料模型與配置**
+    -   **Schema 更新**:
+        -   `League` / `LeagueParticipant`: 支援多層級聯賽架構。
+        -   `Schedule`: 新增 `series_id` 與 `game_number` 用於追蹤季後賽進度。
+    -   **Config 更新**: 在 `game_config.yaml` 新增 `league_system` 區塊，定義賽程優化參數與聲望獎勵規則。
+
+4.  **測試工具**
+    -   新增 `tests/schedule_bigdata_test/run_schedule_optimization.py`: 專用於驗證賽程演算法的獨立測試腳本，產出積分分佈圖表。
+    -   更新 `manage.py`: 新增手動觸發換日與比賽模擬的 CLI 指令。
+
+### 📝 筆記
+-   **效能優化**: 賽程生成採用 `ProcessPoolExecutor` 進行多進程運算，在 i9-14900K 上可於數分鐘內完成高品質賽程排定。
+-   **使用者體驗**: 前端賽程頁面加入了「我的比賽」高亮顯示與自動排序邏輯，確保玩家能優先看到自己的賽程。
+
+### 🔜 下一步計畫
+-   **數據顯示優化**: 完善球隊與球員的數據統計頁面 (Stats Leaderboard)。
+-   **訓練系統實裝**: 實作訓練點數分配與球員成長/老化結算邏輯。
+
+--
+

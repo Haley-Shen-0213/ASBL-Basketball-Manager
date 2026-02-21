@@ -46,6 +46,46 @@ system: # 系統設定
     force_full_series: False 
 
 # =============================================================================
+# [New] 聯賽系統設定 (League System) - Spec v1.3 & Schedule Spec v1.0
+# =============================================================================
+league_system:
+  structure:
+    teams_per_tier: 36 # 每個聯賽層級的球隊數
+  
+  # 賽程優化參數 (Schedule Optimization)
+  schedule:
+    optimization:
+      iterations: 30000000 # 蒙地卡羅模擬次數 (正式環境建議 30,000,000)
+      elite_pool_size: 1000 # 保留前 N 個最佳解
+      penalty_weights:
+        streak_2: 1
+        streak_3: 3
+        streak_4: 5
+        streak_5: 10
+        streak_6_plus: 30
+  
+  # 聲望系統參數 (Reputation)
+  reputation:
+    regular:
+      win: 1
+      loss: -1
+      upset_threshold: 5    # 排名差距 > 5 視為下剋上
+      upset_win_bonus: 2    # 下剋上額外加分 (總計 1+2=3)
+      upset_loss_penalty: -1 # 被爆冷額外扣分 (總計 -1-1=-2)
+    
+    playoff:
+      participation: 1      # 出賽獎勵
+      win: 1                # 勝場獎勵 (總計 1+1=2)
+      upset_bonus: 1        # 強者挑戰獎勵
+      series_win_early_bonus: 5 # 提前晉級獎勵
+      
+      # 賽季結算排名獎勵
+      season_end:
+        champion: 20
+        runner_up: 10
+        third_place: 5
+
+# =============================================================================
 # 1. 球員生成設定 (Player Generation)
 # 對應規格書: Player System v3.2
 # =============================================================================
