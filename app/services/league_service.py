@@ -109,22 +109,34 @@ class LeagueService:
         if target_bot:
             print(f"🔄 [聯盟] 球隊 {new_team.name} (ID:{new_team.id}) 正在接管電腦球隊 {target_bot.name} (ID:{target_bot.id})")
             
+            # [Fix] 取得當前賽季，確保只更新本季資料
+            current_season = LeagueService.get_current_season()
+            season_id = current_season.id
+
             # === 執行接管 (Takeover) ===
             # A. 繼承戰績與排名數據
             new_team.season_wins = target_bot.season_wins
             new_team.season_losses = target_bot.season_losses
             new_team.reputation = 0 # 重置聲望 (新經營者)
             
-            # B. 繼承席位 (更新 Schedule)
-            Schedule.query.filter_by(home_team_id=target_bot.id).update({'home_team_id': new_team.id})
-            Schedule.query.filter_by(away_team_id=target_bot.id).update({'away_team_id': new_team.id})
+            # B. 繼承席位 (更新 Schedule) - [Fix] 加上 season_id 限制
+            Schedule.query.filter_by(season_id=season_id, home_team_id=target_bot.id).update({'home_team_id': new_team.id})
+            Schedule.query.filter_by(season_id=season_id, away_team_id=target_bot.id).update({'away_team_id': new_team.id})
             
-            # C. 繼承歷史比賽 (更新 Match)
-            Match.query.filter_by(home_team_id=target_bot.id).update({'home_team_id': new_team.id})
-            Match.query.filter_by(away_team_id=target_bot.id).update({'away_team_id': new_team.id})
+            # C. 繼承歷史比賽 (更新 Match) - [Fix] 加上 season_id 限制
+            Match.query.filter_by(season_id=season_id, home_team_id=target_bot.id).update({'home_team_id': new_team.id})
+            Match.query.filter_by(season_id=season_id, away_team_id=target_bot.id).update({'away_team_id': new_team.id})
             
             # D. 繼承聯賽參賽權 (LeagueParticipant)
-            LeagueParticipant.query.filter_by(team_id=target_bot.id).update({'team_id': new_team.id})
+            # 聯賽參賽權也需要確認是本季的聯賽
+            # 先找出本季的所有聯賽 ID
+            season_league_ids = [l.id for l in League.query.filter_by(season_id=season_id).all()]
+            
+            if season_league_ids:
+                LeagueParticipant.query.filter(
+                    LeagueParticipant.league_id.in_(season_league_ids),
+                    LeagueParticipant.team_id == target_bot.id
+                ).update({'team_id': new_team.id}, synchronize_session=False)
 
             # E. 狀態交換
             new_team.is_official = True

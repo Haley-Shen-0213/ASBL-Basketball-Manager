@@ -65,6 +65,9 @@ class TeamCreator:
         [Spec 5.4] 生成並檢核單一球員是否符合開隊下限
         若生成的球員能力總和低於 lower_bound，則視為無效(太弱)，重新生成。
         """
+        # [Fix] 預先初始化變數，避免迴圈未執行導致 UnboundLocalError
+        total_score = 0
+
         for _ in range(max_single_attempts):
             # 呼叫純粹的生成器
             payload = PlayerGenerator.generate_payload(specific_grade=grade)

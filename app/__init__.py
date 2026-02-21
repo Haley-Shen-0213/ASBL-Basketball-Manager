@@ -42,9 +42,4 @@ def create_app(config_class=Config):
     # 導入 Models 以便 SQLAlchemy (和 Migrate) 能追蹤到
     from app import models
 
-    # [新增] 初始化排程器
-    # 注意：這必須放在 create_app 的最後，且在 return app 之前
-    from app.scheduler import init_scheduler
-    init_scheduler(app)
-
     return app

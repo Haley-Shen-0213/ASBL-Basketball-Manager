@@ -7,6 +7,7 @@
     提供單一球員卡牌生成的邏輯封裝。
     包含 Prompt 組裝引擎與 Stable Diffusion API 客戶端。
     [Update] 新增背景非同步生成功能，避免阻塞 API 回應。
+    [Fix] 修正 YAML 設定檔讀取邏輯，解決巢狀字典存取失效問題。
 """
 
 import os
@@ -32,9 +33,10 @@ class ImageGenerationService:
         self.client = _SDClient(self.config)
         self.engine = _PromptEngine(self.config)
         
-        # 設定輸出目錄 (預設為 frontend/public/assets/cards)
-        self.output_dir = self.config.get('output.directory', 'frontend/public/assets/cards')
-        self.filename_pattern = self.config.get('output.filename_pattern', 'player_{id}.png')
+        # [修正] 字典不支援 'output.directory' 語法，需改為巢狀 get
+        output_conf = self.config.get('output', {})
+        self.output_dir = output_conf.get('directory', 'frontend/public/assets/cards')
+        self.filename_pattern = output_conf.get('filename_pattern', 'player_{id}.png')
         
         # 確保絕對路徑
         if not os.path.isabs(self.output_dir):
@@ -64,7 +66,11 @@ class ImageGenerationService:
 
             # 2. 組裝 Prompt
             prompt = self.engine.build_prompt(player)
-            neg_prompt = self.config.get('prompts.negative_base', "")
+            
+            # [修正] 巢狀讀取 negative_base
+            prompts_conf = self.config.get('prompts', {})
+            neg_prompt = prompts_conf.get('negative_base', "")
+            
             params = self.config.get('params', {})
             
             # 3. 呼叫 API 生成
@@ -125,7 +131,9 @@ class ImageGenerationService:
 class _SDClient:
     """負責與 Stable Diffusion WebUI API 溝通"""
     def __init__(self, config):
-        self.base_url = config.get('connection.base_url', "http://127.0.0.1:7860")
+        # [修正] 巢狀讀取 base_url
+        conn_conf = config.get('connection', {})
+        self.base_url = conn_conf.get('base_url', "http://127.0.0.1:7860")
         self.model_config = config.get('model', {})
         
     def switch_model(self):
@@ -189,6 +197,7 @@ class _SDClient:
 class _PromptEngine:
     """負責將球員資料轉換為 Prompt"""
     def __init__(self, config):
+        # 這裡的 key 是第一層，直接 get 沒問題
         self.mappings = config.get('mappings', {})
         self.prompts = config.get('prompts', {})
 
